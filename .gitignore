@@ -1,0 +1,73 @@
+# Frontend
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/coverage/
+frontend/build/
+frontend/.env*
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/*.log
+frontend/.cache/  # Add this!  Create React App (CRA) uses this heavily.
+frontend/.parcel-cache # If using parcel
+
+frontendv2/node_modules/
+frontendv2/.pnp
+frontendv2/.pnp.js
+frontendv2/coverage/
+frontendv2/build/
+frontendv2/.env*
+frontendv2/npm-debug.log*
+frontendv2/yarn-debug.log*
+frontendv2/yarn-error.log*
+frontendv2/*.log
+frontendv2/.cache/  # Add this!  Create React App (CRA) uses this heavily.
+frontendv2/.parcel-cache # If using parcel
+
+
+# Python Backend
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyd
+backend/*.egg
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/*.log
+backend/.pytest_cache/
+backend/instance/  # Flask instance folder (if you use Flask)
+backend/.env  # IMPORTANT: Exclude environment files
+backend/.env.* # Exclude environment files with extensions
+
+# Dependency management (if applicable beyond venv)
+backend/poetry.lock       # If using Poetry (remove requirements.txt if using Poetry exclusively)
+backend/.mypy_cache/       # Mypy type checking cache
+
+# IDE
+.vscode/
+.idea/
+.history/
+
+# Misc
+.DS_Store
+Thumbs.db
+._*
+
+# JetBrains IDEs (IntelliJ, PyCharm, etc.)
+*.iws
+*.iml
+*.ipr
+
+#Temporary files created by operating system
+/tmp*
+/Temp*
+
+# Editor backups
+*~
+\#*\#
+
+# Logs
+*/logs/
