@@ -10,11 +10,18 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    profession = Column(String(255))
+    hobbies = Column(String(255))
+    interests = Column(String(255))
+    skill_level = Column(String(50))
+    gender = Column(String(50), default='neutral')
+    additional_info = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     flashcard_libraries = relationship('FlashcardLibrary', back_populates='user')
     generations = relationship('FlashcardGeneration', back_populates='user')
     analytics = relationship('Analytics', back_populates='user')
+    conversations = relationship('Conversation', back_populates='user')
 
 
 class FlashcardLibrary(Base):
@@ -64,3 +71,33 @@ class Analytics(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship('User', back_populates='analytics')
+
+
+class Conversation(Base):
+    __tablename__ = 'conversations'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    scenario = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    completed_at = Column(TIMESTAMP, nullable=True)
+    overall_score = Column(Integer, nullable=True)
+    overall_feedback = Column(Text, nullable=True)
+    main_strengths = Column(Text, nullable=True)
+    areas_to_improve = Column(Text, nullable=True)
+    
+    # Relationships
+    user = relationship('User', back_populates='conversations')
+    messages = relationship('ConversationMessage', back_populates='conversation', cascade='all, delete-orphan')
+
+
+class ConversationMessage(Base):
+    __tablename__ = 'conversation_messages'
+    id = Column(Integer, primary_key=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
+    role = Column(String(50), nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    feedback = Column(Text, nullable=True)  # JSON string containing feedback
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    
+    # Relationship
+    conversation = relationship('Conversation', back_populates='messages')

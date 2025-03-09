@@ -1,8 +1,8 @@
 import React from 'react';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const HomeButton = () => {
-  const history = useHistory();
+  const navigate = useNavigate();
 
   return (
     <button
@@ -17,7 +17,7 @@ const HomeButton = () => {
         cursor: 'pointer',
         fontSize: '24px',
       }}
-      onClick={() => history.push('/home')}
+      onClick={() => navigate('/home')}
     >
       <i className="fas fa-home"></i>
     </button>

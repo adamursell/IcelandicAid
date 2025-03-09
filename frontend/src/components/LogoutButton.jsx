@@ -1,12 +1,12 @@
 import React from 'react';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const LogoutButton = ({ onLogout }) => {
-  const history = useHistory();
+  const navigate = useNavigate();
 
   const handleLogout = () => {
     onLogout();
-    history.push('/');
+    navigate('/');
   };
 
   return (

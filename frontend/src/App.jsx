@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
 import Home from './components/Home';
@@ -7,18 +7,17 @@ import GenerateFlashcards from './components/GenerateFlashcards';
 import FlashcardLibrary from './components/FlashcardLibrary';
 import PracticeSetup from './components/PracticeSetup';
 import PracticeSession from './components/PracticeSession';
+import ConversationalPractice from './components/ConversationalPractice';
+import AccountSettings from './components/AccountSettings';
 
 const App = () => {
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
-    const storedUserEmail = localStorage.getItem('userEmail');
-    if (storedUserId && storedUserEmail) {
-      setUserId(storedUserId);
-      setUserEmail(storedUserEmail);
-    }
+    // Clear any existing auth data on initial load
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userEmail');
   }, []);
 
   const handleLogin = (id, email) => {
@@ -38,27 +37,55 @@ const App = () => {
   return (
     <Router>
       <div className="App">
-        <Switch>
-          <Route path="/" exact>
-            {userId ? <Home userEmail={userEmail} onLogout={handleLogout} /> : <Login onLogin={handleLogin} />}
-          </Route>
-          <Route path="/register" component={Register} />
-          <Route path="/home">
-            <Home userEmail={userEmail} onLogout={handleLogout} />
-          </Route>
-          <Route path="/generate">
-            <GenerateFlashcards userId={userId} onLogout={handleLogout} />
-          </Route>
-          <Route path="/library">
-            <FlashcardLibrary userId={userId} onLogout={handleLogout} />
-          </Route>
-          <Route path="/practice" exact>
-            <PracticeSetup onLogout={handleLogout} />
-          </Route>
-          <Route path="/practice/session">
-            <PracticeSession userId={userId} onLogout={handleLogout} />
-          </Route>
-        </Switch>
+        <Routes>
+          <Route 
+            path="/" 
+            element={
+              userId ? (
+                <Navigate to="/home" replace />
+              ) : (
+                <Login onLogin={handleLogin} />
+              )
+            } 
+          />
+          <Route path="/register" element={<Register />} />
+          <Route 
+            path="/home" 
+            element={
+              userId ? (
+                <Home 
+                  userEmail={userEmail} 
+                  userId={userId} 
+                  onLogout={handleLogout}
+                />
+              ) : (
+                <Navigate to="/" />
+              )
+            } 
+          />
+          <Route path="/generate" element={<GenerateFlashcards userId={userId} onLogout={handleLogout} />} />
+          <Route path="/library" element={<FlashcardLibrary userId={userId} onLogout={handleLogout} />} />
+          <Route path="/practice" element={<Navigate to="/practice/setup" replace />} />
+          <Route path="/practice/setup" element={<PracticeSetup />} />
+          <Route path="/practice-session" element={<PracticeSession />} />
+          <Route 
+            path="/conversation" 
+            element={<ConversationalPractice userId={userId} onLogout={handleLogout} />} 
+          />
+          <Route 
+            path="/account" 
+            element={
+              userId ? (
+                <AccountSettings 
+                  userId={userId} 
+                  onLogout={handleLogout}
+                />
+              ) : (
+                <Navigate to="/" />
+              )
+            } 
+          />
+        </Routes>
       </div>
     </Router>
   );
