@@ -224,7 +224,18 @@ const FlashcardLibrary = ({ userId, onLogout }) => {
         <tbody>
           {filteredFlashcards.map((flashcard) => (
             <tr key={flashcard.id}>
-              <td>{flashcard.topic}</td>
+              <td>
+                {editingId === flashcard.id ? (
+                  <input
+                    type="text"
+                    value={editedCard.topic}
+                    onChange={(e) => handleChange('topic', e.target.value)}
+                    className="edit-input"
+                  />
+                ) : (
+                  flashcard.topic
+                )}
+              </td>
               <td>
                 {editingId === flashcard.id ? (
                   <input

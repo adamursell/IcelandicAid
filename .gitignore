@@ -41,6 +41,8 @@ backend/.pytest_cache/
 backend/instance/  # Flask instance folder (if you use Flask)
 backend/.env  # IMPORTANT: Exclude environment files
 backend/.env.* # Exclude environment files with extensions
+backend/APIKey.env
+APIKey.env
 
 # Virtual environments
 REIVenv/

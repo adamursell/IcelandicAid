@@ -8,6 +8,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
 import re
+from datetime import datetime, timedelta
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------
 # Load Environment Variables
 # ---------------------------
-load_dotenv("APIKey.env")
+load_dotenv("C:/Users/User/PycharmProjects/IcelandicLearningAid/APIKey.env")
 API_KEY = os.getenv("APIKey")
 if not API_KEY:
     raise ValueError("Please set the ANTHROPIC_API_KEY environment variable in APIKey.env")
@@ -24,81 +25,15 @@ if not API_KEY:
 # ---------------------------
 # SQLAlchemy Setup & Database Models
 # ---------------------------
-from sqlalchemy import create_engine, Column, Integer, String, Text, TIMESTAMP, ForeignKey
-from sqlalchemy.orm import relationship, declarative_base, sessionmaker
-from sqlalchemy.sql import func
+from sqlalchemy import create_engine, func, desc, or_, and_, distinct
+from sqlalchemy.orm import sessionmaker, scoped_session
+from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
 
 # Database configuration
-DATABASE_URL = "sqlite:///AppDatabase.db"  # Changed to Users.db
+DATABASE_URL = "sqlite:///AppDatabase.db"
 engine = create_engine(DATABASE_URL, echo=False)  # Add echo=True for debugging
-Base = declarative_base()
 Session = sessionmaker(bind=engine)
 session = Session()
-
-# Define Models
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    email = Column(String(255), unique=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    profession = Column(String(255))
-    hobbies = Column(String(255))
-    interests = Column(String(255))
-    skill_level = Column(String(50))
-    gender = Column(String(50), default='neutral')
-    additional_info = Column(Text)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Add relationships
-    libraries = relationship('FlashcardLibrary', backref='user', cascade='all, delete-orphan')
-    generations = relationship('FlashcardGeneration', backref='user', cascade='all, delete-orphan')
-
-class FlashcardLibrary(Base):
-    __tablename__ = 'flashcard_libraries'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"))
-    library_name = Column(String(255), nullable=False)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-
-class FlashcardGeneration(Base):
-    __tablename__ = 'flashcard_generations'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"))
-    prompt_template_version = Column(String(50))
-    flashcard_topic = Column(String(255))
-    skill_level = Column(String(50))
-    speaker_profile = Column(Text)
-    raw_output = Column(Text)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-
-class Flashcard(Base):
-    __tablename__ = 'flashcards'
-    id = Column(Integer, primary_key=True)
-    library_id = Column(Integer, ForeignKey('flashcard_libraries.id', ondelete="CASCADE"))
-    front_text = Column(String(255), nullable=False)
-    back_text = Column(String(255), nullable=False)
-    additional_info = Column(Text)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-
-class Conversation(Base):
-    __tablename__ = 'conversations'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"))
-    scenario = Column(String(255))
-    completed_at = Column(TIMESTAMP)
-    overall_feedback = Column(Text)
-    main_strengths = Column(Text)
-    areas_to_improve = Column(Text)
-    overall_score = Column(Integer)
-
-class ConversationMessage(Base):
-    __tablename__ = 'conversation_messages'
-    id = Column(Integer, primary_key=True)
-    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete="CASCADE"))
-    role = Column(String(50))
-    content = Column(Text)
-    feedback = Column(Text)
-    created_at = Column(TIMESTAMP, server_default=func.now())
 
 # Create the tables in the database (if they don't already exist)
 Base.metadata.create_all(engine)
@@ -572,10 +507,13 @@ def save_to_library():
         # Create new flashcard
         try:
             new_card = Flashcard(
-                library_id=library.id,  # Removed user_id since it's not in the model
+                user_id=user_id,
+                library_id=library.id,
                 front_text=flashcard_data['front'],
                 back_text=flashcard_data['back'],
-                additional_info=flashcard_data.get('additional_info', '')
+                additional_info=flashcard_data.get('additional_info', ''),
+                next_repetition_space=1,  # Initial repetition space is 1 day
+                next_practice_time=func.now()  # Initial practice time is now (immediately available)
             )
             local_session.add(new_card)
             local_session.commit()
@@ -657,6 +595,7 @@ def update_flashcard(flashcard_id):
     front = data.get("front")
     back = data.get("back")
     additional_info = data.get("additional_info")
+    topic = data.get("topic")  # Get the topic from the request
 
     try:
         # Get the flashcard from the database
@@ -664,7 +603,33 @@ def update_flashcard(flashcard_id):
         if not flashcard:
             return jsonify({"error": "Flashcard not found"}), 404
 
-        # Update the fields if they are provided
+        # Get the current library to check if topic has changed
+        current_library = session.query(FlashcardLibrary).get(flashcard.library_id)
+        
+        # If topic is provided and has changed, update the library
+        if topic is not None and topic != current_library.library_name:
+            # Get the user_id from the flashcard
+            user_id = flashcard.user_id
+            
+            # Find or create a library with the new topic name
+            new_library = session.query(FlashcardLibrary).filter_by(
+                user_id=user_id, 
+                library_name=topic
+            ).first()
+            
+            if not new_library:
+                # Create a new library if it doesn't exist
+                new_library = FlashcardLibrary(
+                    user_id=user_id,
+                    library_name=topic
+                )
+                session.add(new_library)
+                session.flush()  # Get the ID without committing
+            
+            # Update the flashcard's library_id
+            flashcard.library_id = new_library.id
+
+        # Update the other fields if they are provided
         if front is not None:
             flashcard.front_text = front
         if back is not None:
@@ -675,6 +640,9 @@ def update_flashcard(flashcard_id):
         # Commit the changes
         session.commit()
 
+        # Get the updated library name
+        updated_library = session.query(FlashcardLibrary).get(flashcard.library_id)
+
         return jsonify({
             "message": "Flashcard updated successfully",
             "flashcard": {
@@ -682,7 +650,7 @@ def update_flashcard(flashcard_id):
                 "front": flashcard.front_text,
                 "back": flashcard.back_text,
                 "additional_info": flashcard.additional_info,
-                "topic": session.query(FlashcardLibrary).get(flashcard.library_id).library_name
+                "topic": updated_library.library_name
             }
         }), 200
 
@@ -768,6 +736,54 @@ def get_practice_flashcards(user_id):
         logger.error(f"Error fetching practice flashcards: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/users/<int:user_id>/spaced-practice', methods=['GET'])
+def get_spaced_practice_flashcards(user_id):
+    try:
+        topic = request.args.get('topic', default=None, type=str)
+        
+        # Base query joining Flashcard with FlashcardLibrary
+        query = (session.query(Flashcard)
+                .join(FlashcardLibrary)
+                .filter(FlashcardLibrary.user_id == user_id)
+                .filter(Flashcard.next_practice_time <= func.now()))  # Only cards due for practice
+        
+        # If specific topic is requested (and it's not "all")
+        if topic and topic.lower() != 'all':
+            query = query.filter(FlashcardLibrary.library_name == topic)
+        
+        # Get total available cards for the query
+        total_cards = query.count()
+        
+        # Get all due flashcards, ordered randomly
+        flashcards = (query
+                     .order_by(func.random())
+                     .all())
+        
+        if not flashcards:
+            return jsonify({
+                "message": "No flashcards due for practice", 
+                "flashcards": [],
+                "total_available": 0
+            }), 200
+
+        results = [{
+            "id": fc.id,
+            "front": fc.front_text,
+            "back": fc.back_text,
+            "additional_info": fc.additional_info,
+            "topic": session.query(FlashcardLibrary).get(fc.library_id).library_name,
+            "next_repetition_space": fc.next_repetition_space
+        } for fc in flashcards]
+
+        return jsonify({
+            "flashcards": results,
+            "total_available": total_cards
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching spaced practice flashcards: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/users/<int:user_id>/practice/next', methods=['POST'])
 def get_next_practice_card(user_id):
     """Get next flashcard when a card is kept for more practice."""
@@ -776,7 +792,21 @@ def get_next_practice_card(user_id):
         current_card_id = data.get('current_card_id')
         topic = data.get('topic')
         
-        # Base query
+        # If we have a current card ID, return that specific card
+        # since the user marked it for more practice
+        if current_card_id:
+            current_card = session.query(Flashcard).get(current_card_id)
+            if current_card:
+                result = {
+                    "id": current_card.id,
+                    "front": current_card.front_text,
+                    "back": current_card.back_text,
+                    "additional_info": current_card.additional_info,
+                    "topic": session.query(FlashcardLibrary).get(current_card.library_id).library_name
+                }
+                return jsonify(result), 200
+        
+        # Base query for getting a random card if no current card or it wasn't found
         query = (session.query(Flashcard)
                 .join(FlashcardLibrary)
                 .filter(FlashcardLibrary.user_id == user_id))
@@ -784,10 +814,6 @@ def get_next_practice_card(user_id):
         # Apply topic filter if specified
         if topic and topic.lower() != 'all':
             query = query.filter(FlashcardLibrary.library_name == topic)
-        
-        # Get a random card that's not the current card
-        if current_card_id:
-            query = query.filter(Flashcard.id != current_card_id)
         
         next_card = query.order_by(func.random()).first()
         
@@ -806,6 +832,82 @@ def get_next_practice_card(user_id):
 
     except Exception as e:
         logger.error(f"Error fetching next practice flashcard: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/users/<int:user_id>/spaced-practice/next', methods=['POST'])
+def get_next_spaced_practice_card(user_id):
+    """Get next flashcard for spaced repetition practice and update the current card's parameters."""
+    try:
+        data = request.get_json()
+        current_card_id = data.get('current_card_id')
+        is_correct = data.get('is_correct', False)
+        
+        logger.info(f"Processing spaced practice card: card_id={current_card_id}, is_correct={is_correct}")
+        
+        # Update the current card's spaced repetition parameters if provided
+        if current_card_id:
+            current_card = session.query(Flashcard).filter(Flashcard.id == current_card_id).first()
+            
+            if current_card:
+                if is_correct:
+                    # Double the repetition space and update next practice time
+                    old_space = current_card.next_repetition_space
+                    current_card.next_repetition_space = current_card.next_repetition_space * 2
+                    # Set next practice time to current time + repetition space days
+                    current_card.next_practice_time = datetime.now() + timedelta(days=current_card.next_repetition_space)
+                    logger.info(f"Card {current_card_id} marked correct: repetition space updated from {old_space} to {current_card.next_repetition_space} days")
+                else:
+                    # Reduce repetition space to minimum of 1 day or half current value
+                    old_space = current_card.next_repetition_space
+                    current_card.next_repetition_space = max(1, current_card.next_repetition_space // 2)
+                    logger.info(f"Card {current_card_id} marked incorrect: repetition space updated from {old_space} to {current_card.next_repetition_space} days")
+                    # For incorrect answers, we don't update next_practice_time
+                
+                session.commit()
+                logger.info(f"Database updated for card {current_card_id}")
+        
+        # For incorrect answers, we want to return the next card in the queue
+        # and let the frontend handle putting the current card at the end
+        if not is_correct and current_card_id:
+            # Get the next due card that's not the current card
+            next_card = (session.query(Flashcard)
+                        .join(FlashcardLibrary)
+                        .filter(FlashcardLibrary.user_id == user_id)
+                        .filter(Flashcard.next_practice_time <= func.now())
+                        .filter(Flashcard.id != current_card_id)
+                        .order_by(func.random())
+                        .first())
+            
+            # If there are no other due cards, return the current card
+            if not next_card:
+                next_card = current_card
+        else:
+            # For correct answers, get the next due card
+            next_card = (session.query(Flashcard)
+                        .join(FlashcardLibrary)
+                        .filter(FlashcardLibrary.user_id == user_id)
+                        .filter(Flashcard.next_practice_time <= func.now())
+                        .order_by(func.random())
+                        .first())
+        
+        if not next_card:
+            logger.info(f"No more cards available for user {user_id}")
+            return jsonify({"message": "No more cards available for practice"}), 404
+            
+        result = {
+            "id": next_card.id,
+            "front": next_card.front_text,
+            "back": next_card.back_text,
+            "additional_info": next_card.additional_info,
+            "topic": session.query(FlashcardLibrary).get(next_card.library_id).library_name,
+            "next_repetition_space": next_card.next_repetition_space
+        }
+        
+        logger.info(f"Returning next card {next_card.id} for user {user_id}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error in spaced repetition practice: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # Add your system prompt here
@@ -914,8 +1016,7 @@ def start_conversation():
             new_message = ConversationMessage(
                 conversation_id=new_conversation.id,
                 role="assistant",
-                content=icelandic_text,
-                feedback=json.dumps({"english_translation": english_translation})
+                content=icelandic_text
             )
             session.add(new_message)
             
@@ -1057,20 +1158,28 @@ def chat():
                     
                     # Generate feedback for the completed conversation
                     try:
-                        # Call the generate_conversation_feedback endpoint
+                        # Call the end_conversation endpoint
                         feedback_data = {
                             "user_id": user_id,
                             "conversation_id": conversation_id
                         }
+                        logger.info(f"Calling end_conversation endpoint for conversation {conversation_id}")
                         # Make an internal request to generate feedback
                         with app.test_client() as client:
                             feedback_response = client.post(
-                                '/generate_conversation_feedback',
+                                '/end_conversation',
                                 json=feedback_data,
                                 content_type='application/json'
                             )
-                            feedback_result = json.loads(feedback_response.data)
-                            logger.info(f"Generated feedback for completed conversation: {feedback_result}")
+                            
+                            if feedback_response.status_code == 200:
+                                try:
+                                    feedback_result = json.loads(feedback_response.data)
+                                    logger.info(f"Generated feedback for completed conversation: {feedback_result}")
+                                except json.JSONDecodeError as json_err:
+                                    logger.error(f"Error parsing feedback response: {str(json_err)}, Response data: {feedback_response.data}")
+                            else:
+                                logger.error(f"Failed to generate feedback: Status code {feedback_response.status_code}, Response: {feedback_response.data}")
                     except Exception as feedback_err:
                         logger.error(f"Error generating feedback for completed conversation: {str(feedback_err)}")
                 
@@ -1138,549 +1247,223 @@ def chat():
         print(f"Error in chat: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/generate_conversation_feedback', methods=['POST'])
-def generate_conversation_feedback():
-    data = request.get_json()
-    user_id = data.get('user_id')
-    conversation_id = data.get('conversation_id')
-    
-    # Log the incoming request data
-    logger.info(f"Received feedback generation request: user_id={user_id}, conversation_id={conversation_id}")
-    
-    try:
-        # Get the conversation from the database
-        conversation = session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
-        if not conversation:
-            logger.error(f"Conversation not found: user_id={user_id}, conversation_id={conversation_id}")
-            return jsonify({"error": "Conversation not found"}), 404
-            
-        # Check if feedback already exists
-        if conversation.overall_feedback:
-            logger.info(f"Feedback already exists for conversation {conversation_id}, returning existing feedback")
-            return jsonify({
-                "feedback_summary": conversation.overall_feedback,
-                "main_strengths": json.loads(conversation.main_strengths) if conversation.main_strengths else [],
-                "areas_to_improve": json.loads(conversation.areas_to_improve) if conversation.areas_to_improve else [],
-                "overall_score": conversation.overall_score,
-                "conversation_id": conversation_id,
-                "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-            }), 200
-            
-        # Get all messages in this conversation
-        messages = session.query(ConversationMessage).filter_by(conversation_id=conversation_id).order_by(ConversationMessage.created_at).all()
-        
-        # Format the conversation history for the prompt
-        conversation_history = ""
-        for i, msg in enumerate(messages):
-            if msg.role == "user":
-                conversation_history += f"Student: {msg.content}\n"
-                # Add feedback if available
-                if msg.feedback:
-                    feedback_json = json.loads(msg.feedback)
-                    conversation_history += "Feedback:\n"
-                    if feedback_json.get("grammar_notes"):
-                        conversation_history += "Grammar notes: " + ", ".join(feedback_json["grammar_notes"]) + "\n"
-                    if feedback_json.get("vocabulary_suggestions"):
-                        conversation_history += "Vocabulary suggestions: " + ", ".join([f"{k}: {v}" for k, v in feedback_json["vocabulary_suggestions"].items()]) + "\n"
-                    if feedback_json.get("overall_feedback"):
-                        conversation_history += f"Overall: {feedback_json['overall_feedback']}\n"
-            else:
-                conversation_history += f"Assistant: {msg.content}\n"
-            conversation_history += "\n"
-        
-        # Get user information
-        user = session.query(User).filter_by(id=user_id).first()
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-            
-        # Create the prompt
-        personalized_prompt = CONVERSATION_FEEDBACK_PROMPT.format(
-            CONVERSATION_HISTORY=conversation_history,
-            USER_SKILL_LEVEL=user.skill_level or "general",
-            USER_PROFESSION=user.profession or "general",
-            USER_HOBBIES=user.hobbies or "general",
-            USER_INTERESTS=user.interests or "general",
-            USER_GENDER=user.gender or "general"
-        )
-        
-        # Log the complete prompt being sent to Claude
-        logger.info(f"COMPLETE PROMPT SENT TO CLAUDE FOR CONVERSATION {conversation_id}:\n{personalized_prompt}")
-        
-        # Call Claude API
-        client = Anthropic(api_key=API_KEY)
-        response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            temperature=0.3,
-            system=personalized_prompt,
-            messages=[{
-                "role": "user",
-                "content": "Please provide overall feedback for this conversation. You MUST return ONLY a valid JSON object with NO NEWLINES or EXTRA SPACES between keys and values. The JSON must start with '{' and end with '}'. Do not include any text, explanations, or content outside of the JSON structure. The JSON should have this exact format: {\"feedback_summary\":\"text\",\"main_strengths\":[\"item1\",\"item2\",\"item3\"],\"areas_to_improve\":[\"item1\",\"item2\",\"item3\"],\"overall_score\":number}"
-            }]
-        )
-        
-        # Parse the response
-        try:
-            # Get the raw text from the response and clean it
-            raw_response_text = response.content[0].text
-            logger.info(f"COMPLETE FEEDBACK RESPONSE from Claude for conversation {conversation_id}:\n{raw_response_text}")
-            
-            # Trim the response to remove any leading/trailing whitespace
-            response_text = raw_response_text.strip()
-            logger.info(f"TRIMMED RESPONSE: {response_text}")
-            
-            # Create a fallback feedback response in case parsing fails
-            fallback_feedback = {
-                "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                "main_strengths": ["Participation in Icelandic conversation practice"],
-                "areas_to_improve": ["Continue practicing with more conversations"],
-                "overall_score": 5
-            }
-            
-            # More aggressive cleaning of the JSON string
-            # First, find the JSON object boundaries
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                # Extract just the JSON part
-                json_str = response_text[json_start:json_end]
-                
-                # Comprehensive cleaning of the JSON string
-                # 1. Remove all newlines and replace with spaces
-                cleaned_json = json_str.replace('\n', ' ')
-                
-                # 2. Fix spacing around keys and values
-                cleaned_json = re.sub(r'\s+', ' ', cleaned_json)  # Normalize all whitespace
-                cleaned_json = re.sub(r'"\s+:', '\":', cleaned_json)  # Remove space between key and colon
-                cleaned_json = re.sub(r':\s+', ': ', cleaned_json)  # Normalize space after colon
-                cleaned_json = re.sub(r',\s+', ', ', cleaned_json)  # Normalize space after comma
-                
-                # 3. Fix any trailing commas
-                cleaned_json = re.sub(r',\s*}', '}', cleaned_json)
-                cleaned_json = re.sub(r',\s*]', ']', cleaned_json)
-                
-                logger.info(f"Thoroughly cleaned JSON string: {cleaned_json}")
-                
-                try:
-                    # Try to parse the cleaned JSON
-                    feedback_json = json.loads(cleaned_json)
-                    logger.info(f"Successfully parsed JSON after thorough cleaning: {feedback_json}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON parsing still failed after thorough cleaning: {str(e)}")
-                    # Fall back to the original approaches
-                    feedback_json = None
-            else:
-                logger.error(f"Could not find valid JSON object boundaries in response: {response_text}")
-                feedback_json = None
-            
-            # If the thorough cleaning approach failed, try the original approaches
-            if not feedback_json:
-                # Handle the specific error case with newline character
-                if response_text.startswith('\n'):
-                    logger.info("Response starts with newline, removing it")
-                    response_text = response_text.lstrip()
-                
-                # Additional check for common error pattern with newline before "feedback_summary"
-                if '\n"feedback_summary"' in response_text:
-                    logger.info("Found newline before feedback_summary, attempting to fix")
-                    response_text = response_text.replace('\n"feedback_summary"', '"feedback_summary"')
-                
-                # Try different approaches to extract valid JSON
-                
-                # Approach 1: Find JSON between curly braces
-                json_start = response_text.find('{')
-                json_end = response_text.rfind('}') + 1
-                
-                logger.info(f"JSON extraction - Start index: {json_start}, End index: {json_end}")
-                
-                # Special handling for the specific error case with newlines in JSON
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_text[json_start:json_end]
-                    
-                    # Check for newlines inside the JSON that might be causing issues
-                    if '\n' in json_str:
-                        logger.info("Found newlines inside JSON, attempting to clean")
-                        # Replace newlines inside the JSON with spaces
-                        cleaned_json_str = json_str.replace('\n', ' ')
-                        # Fix common issues with newlines before keys
-                        cleaned_json_str = re.sub(r'\s+"([^"]+)":', r'"\1":', cleaned_json_str)
-                        logger.info(f"Cleaned JSON string: {cleaned_json_str}")
-                        
-                        try:
-                            feedback_json = json.loads(cleaned_json_str)
-                            logger.info(f"Successfully parsed JSON after newline cleaning: {feedback_json}")
-                        except json.JSONDecodeError:
-                            # If cleaning didn't work, continue with the original approaches
-                            logger.info("Newline cleaning didn't work, continuing with original approaches")
-                            json_str = response_text[json_start:json_end]
-                    else:
-                        json_str = response_text[json_start:json_end]
-                    
-                    try:
-                        logger.info(f"Attempting to parse JSON string (Approach 1): {json_str}")
-                        feedback_json = json.loads(json_str)
-                        logger.info(f"Successfully parsed JSON using approach 1: {feedback_json}")
-                    except json.JSONDecodeError as json_err:
-                        # If that fails, try approach 2
-                        logger.info(f"Approach 1 failed with error: {str(json_err)}")
-                        
-                        # Approach 2: Try to clean the JSON string
-                        try:
-                            # Remove any leading/trailing whitespace or quotes
-                            json_str = json_str.strip().strip('"\'')
-                            
-                            # Replace escaped quotes
-                            json_str = json_str.replace('\\"', '"')
-                            
-                            # Fix unescaped quotes in strings
-                            json_str = re.sub(r'(?<!")(".*?[^\\]")(?!")', r'\1', json_str)
-                            
-                            # Fix trailing commas
-                            json_str = re.sub(r',\s*}', '}', json_str)
-                            json_str = re.sub(r',\s*]', ']', json_str)
-                            
-                            logger.info(f"Cleaned JSON string (Approach 2): {json_str}")
-                            feedback_json = json.loads(json_str)
-                            logger.info(f"Successfully parsed JSON using approach 2: {feedback_json}")
-                        except json.JSONDecodeError as json_err2:
-                            logger.info(f"Approach 2 failed with error: {str(json_err2)}")
-            
-            # If all approaches failed, use fallback
-            if not feedback_json:
-                logger.error("All JSON parsing approaches failed, using fallback")
-                feedback_json = fallback_feedback
-            
-            # Ensure all required fields exist
-            if "feedback_summary" not in feedback_json or not feedback_json["feedback_summary"]:
-                feedback_json["feedback_summary"] = fallback_feedback["feedback_summary"]
-            if "main_strengths" not in feedback_json or not isinstance(feedback_json["main_strengths"], list) or not feedback_json["main_strengths"]:
-                feedback_json["main_strengths"] = fallback_feedback["main_strengths"]
-            if "areas_to_improve" not in feedback_json or not isinstance(feedback_json["areas_to_improve"], list) or not feedback_json["areas_to_improve"]:
-                feedback_json["areas_to_improve"] = fallback_feedback["areas_to_improve"]
-            if "overall_score" not in feedback_json or not isinstance(feedback_json["overall_score"], int):
-                feedback_json["overall_score"] = fallback_feedback["overall_score"]
-                
-            # Update the conversation record with the feedback
-            try:
-                # Validate that the JSON can be serialized and deserialized properly
-                main_strengths_json = json.dumps(feedback_json["main_strengths"])
-                areas_to_improve_json = json.dumps(feedback_json["areas_to_improve"])
-                
-                # Test that we can deserialize it
-                json.loads(main_strengths_json)
-                json.loads(areas_to_improve_json)
-                
-                # If we get here, the JSON is valid
-                conversation.overall_feedback = feedback_json["feedback_summary"]
-                conversation.main_strengths = main_strengths_json
-                conversation.areas_to_improve = areas_to_improve_json
-                conversation.overall_score = feedback_json["overall_score"]
-                
-                session.commit()
-                logger.info(f"Successfully updated conversation {conversation_id} with feedback")
-                
-                return jsonify({
-                    "feedback_summary": feedback_json["feedback_summary"],
-                    "main_strengths": feedback_json["main_strengths"],
-                    "areas_to_improve": feedback_json["areas_to_improve"],
-                    "overall_score": feedback_json["overall_score"],
-                    "conversation_id": conversation_id,
-                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-                }), 200
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Error updating conversation with feedback: {str(e)}")
-                return jsonify({"error": f"Error saving feedback: {str(e)}"}), 500
-            
-        except Exception as e:
-            logger.error(f"Error processing Claude response: {str(e)}")
-            
-            # Create a fallback feedback response
-            fallback_feedback = {
-                "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                "main_strengths": ["Participation in Icelandic conversation practice"],
-                "areas_to_improve": ["Continue practicing with more conversations"],
-                "overall_score": 5
-            }
-            
-            # Update the conversation record with the fallback feedback
-            conversation.overall_feedback = fallback_feedback["feedback_summary"]
-            conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-            conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-            conversation.overall_score = fallback_feedback["overall_score"]
-            session.commit()
-            
-            return jsonify(fallback_feedback), 200
-            
-    except Exception as e:
-        logger.error(f"Error in generate_conversation_feedback: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/end_conversation', methods=['POST'])
 def end_conversation():
     data = request.get_json()
     user_id = data.get('user_id')
     conversation_id = data.get('conversation_id')
     
+    logger.info(f"Ending conversation: user_id={user_id}, conversation_id={conversation_id}")
+    
     try:
         # Get the conversation
         conversation = session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
         if not conversation:
+            logger.error(f"Conversation not found: user_id={user_id}, conversation_id={conversation_id}")
             return jsonify({"error": "Conversation not found"}), 404
             
         # Check if the conversation is already completed
         if conversation.completed_at:
-            # If feedback already exists, return it
-            if conversation.overall_feedback:
+            logger.info(f"Conversation {conversation_id} is already marked as completed")
+            
+            # Check if feedback already exists in the new table
+            existing_feedback = session.query(ConversationFeedback).filter_by(
+                conversation_id=conversation_id
+            ).first()
+            
+            if existing_feedback:
+                logger.info(f"Feedback already exists for conversation {conversation_id}, returning existing feedback")
                 return jsonify({
-                    "feedback_summary": conversation.overall_feedback,
-                    "main_strengths": json.loads(conversation.main_strengths) if conversation.main_strengths else [],
-                    "areas_to_improve": json.loads(conversation.areas_to_improve) if conversation.areas_to_improve else [],
-                    "overall_score": conversation.overall_score,
-                    "conversation_id": conversation_id,
-                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
+                    "message": "Conversation already ended",
+                    "feedback_available": True,
+                    "conversation_id": conversation_id
                 }), 200
         
-        # Mark the conversation as completed
-        conversation.completed_at = func.now()
-        session.commit()
+        # Mark the conversation as completed if not already
+        if not conversation.completed_at:
+            conversation.completed_at = func.now()
+            session.commit()
+            logger.info(f"Marked conversation {conversation_id} as completed")
         
-        # Create a fallback feedback response in case of errors
-        fallback_feedback = {
-            "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-            "main_strengths": ["Participation in Icelandic conversation practice"],
-            "areas_to_improve": ["Continue practicing with more conversations"],
-            "overall_score": 5
-        }
+        # Get all user messages with feedback in this conversation
+        user_messages = session.query(ConversationMessage).filter_by(
+            conversation_id=conversation_id,
+            role="user"
+        ).order_by(ConversationMessage.created_at).all()
         
+        # Extract feedback from user messages
+        feedback_collection = []
+        for msg in user_messages:
+            if msg.feedback:
+                try:
+                    feedback_json = json.loads(msg.feedback)
+                    feedback_collection.append({
+                        "message": msg.content,
+                        "feedback": feedback_json
+                    })
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse feedback JSON for message {msg.id}")
+        
+        # If no feedback found, return early
+        if not feedback_collection:
+            logger.warning(f"No feedback found for any messages in conversation {conversation_id}")
+            return jsonify({
+                "message": "Conversation ended, but no feedback available to generate summary",
+                "conversation_id": conversation_id,
+                "feedback_available": False
+            }), 200
+        
+        # Get user information for personalization
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user:
+            logger.error(f"User not found: user_id={user_id}")
+            return jsonify({"error": "User not found"}), 404
+        
+        # Format the feedback for the prompt
+        formatted_feedback = ""
+        user_messages_collection = []
+        
+        for item in feedback_collection:
+            formatted_feedback += f"Student message: {item['message']}\n"
+            user_messages_collection.append(item['message'])
+            formatted_feedback += "Feedback:\n"
+            
+            if item['feedback'].get("grammar_notes"):
+                formatted_feedback += "Grammar notes: " + ", ".join(item['feedback']["grammar_notes"]) + "\n"
+            
+            if item['feedback'].get("vocabulary_suggestions"):
+                formatted_feedback += "Vocabulary suggestions: " + ", ".join([f"{k}: {v}" for k, v in item['feedback']["vocabulary_suggestions"].items()]) + "\n"
+            
+            if item['feedback'].get("overall_feedback"):
+                formatted_feedback += f"Overall: {item['feedback']['overall_feedback']}\n"
+            
+            formatted_feedback += "\n"
+        
+        # Create a separate section with just the user's messages for better analysis
+        user_messages_text = "Student's Icelandic messages during the conversation:\n"
+        for i, message in enumerate(user_messages_collection, 1):
+            user_messages_text += f"{i}. {message}\n"
+        
+        # Create the prompt for generating the feedback summary
+        system_prompt = f"""You are an Icelandic language tutor providing feedback on a conversation practice session.
+You will be given feedback that was provided for individual messages in a conversation, as well as the student's actual Icelandic messages.
+Your task is to analyze both the feedback and the student's original messages to generate a comprehensive overall summary.
+
+Consider the student's skill level ({user.skill_level or 'beginner'}) when providing feedback.
+Be encouraging but honest about areas that need improvement.
+
+Follow this step-by-step process to evaluate the student's performance:
+1. First, analyze what the student did well based on both the feedback and their actual messages
+2. Next, identify what areas need improvement based on both the feedback and their actual messages
+3. Then, evaluate the grammatical accuracy on a scale from 0 to 10:
+   - Score 10: No grammatical mistakes at all
+   - Score 0: Every word had grammatical errors
+   - Consider word order, verb conjugation, noun declension, etc.
+4. Next, evaluate vocabulary quality on a scale from 0 to 10:
+   - Score 10: Always used the most appropriate vocabulary for the context and conveyed meaning perfectly
+   - Score 0: Did not use any vocabulary that conveyed the correct meaning
+   - Consider word choice, idioms, formality level, etc.
+5. Finally, consider all the above factors to determine an overall score from 1 to 10
+
+Return ONLY a valid JSON object with the following structure:
+{{
+  "feedback_summary": "One sentence summary of overall performance",
+  "main_strengths": ["Strength 1", "Strength 2", "Strength 3"],
+  "areas_to_improve": ["Area 1", "Area 2", "Area 3"],
+  "grammar_score": number between 0 and 10,
+  "vocabulary_score": number between 0 and 10,
+  "overall_score": number between 1 and 10
+}}
+
+The JSON must be valid with no extra text before or after. Do not include explanations outside the JSON structure.
+"""
+        
+        # Call Claude API to generate the feedback summary
         try:
-            # Get all messages in this conversation
-            messages = session.query(ConversationMessage).filter_by(conversation_id=conversation_id).order_by(ConversationMessage.created_at).all()
-            
-            # Format the conversation history for the prompt
-            conversation_history = ""
-            for i, msg in enumerate(messages):
-                if msg.role == "user":
-                    conversation_history += f"Student: {msg.content}\n"
-                    # Add feedback if available
-                    if msg.feedback:
-                        feedback_json = json.loads(msg.feedback)
-                        conversation_history += "Feedback:\n"
-                        if feedback_json.get("grammar_notes"):
-                            conversation_history += "Grammar notes: " + ", ".join(feedback_json["grammar_notes"]) + "\n"
-                        if feedback_json.get("vocabulary_suggestions"):
-                            conversation_history += "Vocabulary suggestions: " + ", ".join([f"{k}: {v}" for k, v in feedback_json["vocabulary_suggestions"].items()]) + "\n"
-                        if feedback_json.get("overall_feedback"):
-                            conversation_history += f"Overall: {feedback_json['overall_feedback']}\n"
-                    conversation_history += "\n"
-                else:
-                    conversation_history += f"Assistant: {msg.content}\n\n"
-            
-            # Get user information
-            user = session.query(User).filter_by(id=user_id).first()
-            if not user:
-                # Use fallback if user not found
-                conversation.overall_feedback = fallback_feedback["feedback_summary"]
-                conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-                conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-                conversation.overall_score = fallback_feedback["overall_score"]
-                session.commit()
-                return jsonify(fallback_feedback), 200
-                
-            # Create the prompt
-            personalized_prompt = CONVERSATION_FEEDBACK_PROMPT.format(
-                CONVERSATION_HISTORY=conversation_history,
-                USER_SKILL_LEVEL=user.skill_level or "general",
-                USER_PROFESSION=user.profession or "general",
-                USER_HOBBIES=user.hobbies or "general",
-                USER_INTERESTS=user.interests or "general",
-                USER_GENDER=user.gender or "general"
-            )
-            
-            # Log the prompt we're sending to Claude
-            logger.info(f"Sending FEEDBACK prompt to Claude for conversation {conversation_id}:\n{personalized_prompt[:500]}...")
-            
-            # Call Claude API
             client = Anthropic(api_key=API_KEY)
             response = client.messages.create(
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=1024,
                 temperature=0.3,
-                system=personalized_prompt,
+                system=system_prompt,
                 messages=[{
                     "role": "user",
-                    "content": "Please provide overall feedback for this conversation. Remember to return ONLY a valid JSON object with no newlines, starting with '{' and ending with '}'. Do not include any text, explanations, or content outside of the JSON structure."
+                    "content": f"Here is the feedback from an Icelandic conversation practice session:\n\n{formatted_feedback}\n\n{user_messages_text}\n\nPlease provide an overall summary based on this feedback and the student's actual messages. Remember that it is CRITICAL to stick to the JSON format and generate nothing outside of the JSON structure."
                 }]
             )
             
-            # Get the raw text from the response and clean it
-            raw_response_text = response.content[0].text
-            logger.info(f"COMPLETE FEEDBACK RESPONSE from Claude for conversation {conversation_id}:\n{raw_response_text}")
+            # Extract and clean the response
+            raw_response = response.content[0].text
+            logger.info(f"Raw Claude response for conversation {conversation_id}:\n{raw_response}")
             
-            # Trim the response to remove any leading/trailing whitespace
-            response_text = raw_response_text.strip()
-            logger.info(f"TRIMMED RESPONSE: {response_text}")
+            # Clean and parse the JSON response
+            cleaned_response = raw_response.strip()
             
-            # Handle the specific error case with newline character
-            if response_text.startswith('\n'):
-                logger.info("Response starts with newline, removing it")
-                response_text = response_text.lstrip()
+            # Extract JSON object
+            json_start = cleaned_response.find('{')
+            json_end = cleaned_response.rfind('}') + 1
             
-            # Additional check for common error pattern with newline before "feedback_summary"
-            if '\n"feedback_summary"' in response_text:
-                logger.info("Found newline before feedback_summary, attempting to fix")
-                response_text = response_text.replace('\n"feedback_summary"', '"feedback_summary"')
-            
-            # Try different approaches to extract valid JSON
-            feedback_json = None
-            
-            # Approach 1: Find JSON between curly braces
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            logger.info(f"JSON extraction - Start index: {json_start}, End index: {json_end}")
-            
-            # Special handling for the specific error case with newlines in JSON
             if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
+                json_str = cleaned_response[json_start:json_end]
                 
-                # Check for newlines inside the JSON that might be causing issues
-                if '\n' in json_str:
-                    logger.info("Found newlines inside JSON, attempting to clean")
-                    # Replace newlines inside the JSON with spaces
-                    cleaned_json_str = json_str.replace('\n', ' ')
-                    # Fix common issues with newlines before keys
-                    cleaned_json_str = re.sub(r'\s+"([^"]+)":', r'"\1":', cleaned_json_str)
-                    logger.info(f"Cleaned JSON string: {cleaned_json_str}")
+                # Clean the JSON string
+                json_str = re.sub(r'\s+', ' ', json_str)  # Normalize whitespace
+                json_str = json_str.replace('\n', ' ')    # Remove newlines
+                
+                try:
+                    feedback_data = json.loads(json_str)
+                    logger.info(f"Successfully parsed feedback JSON: {feedback_data}")
                     
-                    try:
-                        feedback_json = json.loads(cleaned_json_str)
-                        logger.info(f"Successfully parsed JSON after newline cleaning: {feedback_json}")
-                    except json.JSONDecodeError:
-                        # If cleaning didn't work, continue with the original approaches
-                        logger.info("Newline cleaning didn't work, continuing with original approaches")
-                
-                if not feedback_json:
-                    try:
-                        logger.info(f"Attempting to parse JSON string (Approach 1): {json_str}")
-                        feedback_json = json.loads(json_str)
-                        logger.info(f"Successfully parsed JSON using approach 1: {feedback_json}")
-                    except json.JSONDecodeError as json_err:
-                        logger.info(f"Approach 1 failed with error: {str(json_err)}")
-                        
-                        # Approach 2: Try to clean the JSON string
-                        try:
-                            # Remove any leading/trailing whitespace or quotes
-                            json_str = json_str.strip().strip('"\'')
-                            
-                            # Replace escaped quotes
-                            json_str = json_str.replace('\\"', '"')
-                            
-                            # Fix unescaped quotes in strings
-                            json_str = re.sub(r'(?<!")(".*?[^\\]")(?!")', r'\1', json_str)
-                            
-                            # Fix trailing commas
-                            json_str = re.sub(r',\s*}', '}', json_str)
-                            json_str = re.sub(r',\s*]', ']', json_str)
-                            
-                            logger.info(f"Cleaned JSON string (Approach 2): {json_str}")
-                            feedback_json = json.loads(json_str)
-                            logger.info(f"Successfully parsed JSON using approach 2: {feedback_json}")
-                        except json.JSONDecodeError as json_err2:
-                            logger.info(f"Approach 2 failed with error: {str(json_err2)}")
+                    # Validate the required fields
+                    if not all(k in feedback_data for k in ["feedback_summary", "main_strengths", "areas_to_improve", "grammar_score", "vocabulary_score", "overall_score"]):
+                        raise ValueError("Missing required fields in feedback JSON")
+                    
+                    # Create a new ConversationFeedback record
+                    new_feedback = ConversationFeedback(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        feedback_summary=feedback_data["feedback_summary"],
+                        main_strengths=json.dumps(feedback_data["main_strengths"]),
+                        areas_to_improve=json.dumps(feedback_data["areas_to_improve"]),
+                        grammar_score=feedback_data["grammar_score"],
+                        vocabulary_score=feedback_data["vocabulary_score"],
+                        overall_score=feedback_data["overall_score"]
+                    )
+                    
+                    session.add(new_feedback)
+                    session.commit()
+                    logger.info(f"Saved feedback summary for conversation {conversation_id}")
+                    
+                    return jsonify({
+                        "message": "Conversation ended and feedback generated successfully",
+                        "feedback_available": True,
+                        "conversation_id": conversation_id
+                    }), 200
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.error(f"Error parsing feedback JSON: {str(e)}")
+                    # Continue to fallback
             
-            # If all approaches failed, use fallback
-            if not feedback_json:
-                logger.error("All JSON parsing approaches failed, using fallback")
-                feedback_json = fallback_feedback
+            # If we get here, something went wrong with parsing the JSON
+            logger.warning(f"Could not parse feedback JSON from Claude response for conversation {conversation_id}")
+            return jsonify({
+                "message": "Conversation ended, but there was an issue generating feedback",
+                "error": str(e),
+                "feedback_available": False,
+                "conversation_id": conversation_id
+            }), 200
             
-            # Ensure all required fields exist
-            if "feedback_summary" not in feedback_json or not feedback_json["feedback_summary"]:
-                feedback_json["feedback_summary"] = fallback_feedback["feedback_summary"]
-            if "main_strengths" not in feedback_json or not isinstance(feedback_json["main_strengths"], list) or not feedback_json["main_strengths"]:
-                feedback_json["main_strengths"] = fallback_feedback["main_strengths"]
-            if "areas_to_improve" not in feedback_json or not isinstance(feedback_json["areas_to_improve"], list) or not feedback_json["areas_to_improve"]:
-                feedback_json["areas_to_improve"] = fallback_feedback["areas_to_improve"]
-            if "overall_score" not in feedback_json or not isinstance(feedback_json["overall_score"], int):
-                feedback_json["overall_score"] = fallback_feedback["overall_score"]
-                
-            # Update the conversation record with the feedback
-            try:
-                # Validate that the JSON can be serialized and deserialized properly
-                main_strengths_json = json.dumps(feedback_json["main_strengths"])
-                areas_to_improve_json = json.dumps(feedback_json["areas_to_improve"])
-                
-                # Test that we can deserialize it
-                json.loads(main_strengths_json)
-                json.loads(areas_to_improve_json)
-                
-                # If we get here, the JSON is valid
-                conversation.overall_feedback = feedback_json["feedback_summary"]
-                conversation.main_strengths = main_strengths_json
-                conversation.areas_to_improve = areas_to_improve_json
-                conversation.overall_score = feedback_json["overall_score"]
-                
-                session.commit()
-                logger.info(f"Successfully updated conversation {conversation_id} with feedback")
-                
-                return jsonify({
-                    "feedback_summary": feedback_json["feedback_summary"],
-                    "main_strengths": feedback_json["main_strengths"],
-                    "areas_to_improve": feedback_json["areas_to_improve"],
-                    "overall_score": feedback_json["overall_score"],
-                    "conversation_id": conversation_id,
-                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-                }), 200
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Error updating conversation with feedback: {str(e)}")
-                return jsonify({"error": f"Error saving feedback: {str(e)}"}), 500
-            
-        except Exception as inner_e:
-            logger.error(f"Error processing Claude response: {str(inner_e)}")
-            
-            # Update the conversation record with the fallback feedback
-            conversation.overall_feedback = fallback_feedback["feedback_summary"]
-            conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-            conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-            conversation.overall_score = fallback_feedback["overall_score"]
-            session.commit()
-            
-            return jsonify(fallback_feedback), 200
-            
+        except Exception as e:
+            logger.error(f"Error calling Claude API: {str(e)}")
+            return jsonify({
+                "message": "Conversation ended, but there was an error generating feedback",
+                "error": str(e),
+                "feedback_available": False,
+                "conversation_id": conversation_id
+            }), 200
+    
     except Exception as e:
         logger.error(f"Error in end_conversation: {str(e)}")
-        
-        # Check if this is the specific error with newlines in JSON
-        error_str = str(e)
-        if '\n' in error_str and 'feedback_summary' in error_str:
-            logger.info("Detected specific error with newlines in JSON, using fallback feedback")
-            
-            # Create a fallback feedback response
-            fallback_feedback = {
-                "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                "main_strengths": ["Participation in Icelandic conversation practice"],
-                "areas_to_improve": ["Continue practicing with more conversations"],
-                "overall_score": 5
-            }
-            
-            # Update the conversation record with the fallback feedback
-            conversation.overall_feedback = fallback_feedback["feedback_summary"]
-            conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-            conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-            conversation.overall_score = fallback_feedback["overall_score"]
-            session.commit()
-            
-            return jsonify({
-                "feedback_summary": fallback_feedback["feedback_summary"],
-                "main_strengths": fallback_feedback["main_strengths"],
-                "areas_to_improve": fallback_feedback["areas_to_improve"],
-                "overall_score": fallback_feedback["overall_score"],
-                "conversation_id": conversation_id,
-                "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-            }), 200
-        
         return jsonify({"error": str(e)}), 500
 
 @app.route('/users/<int:user_id>/learning_profile', methods=['GET'])
@@ -1712,7 +1495,23 @@ def get_user_learning_profile(user_id):
         
         # Add conversation feedback
         for conversation in conversations:
-            if conversation.overall_feedback:
+            # First check for feedback in the new table
+            feedback = session.query(ConversationFeedback).filter_by(
+                conversation_id=conversation.id
+            ).first()
+            
+            if feedback:
+                learning_profile["conversation_history"].append({
+                    "conversation_id": conversation.id,
+                    "scenario": conversation.scenario,
+                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None,
+                    "feedback_summary": feedback.feedback_summary,
+                    "main_strengths": json.loads(feedback.main_strengths) if feedback.main_strengths else [],
+                    "areas_to_improve": json.loads(feedback.areas_to_improve) if feedback.areas_to_improve else [],
+                    "overall_score": feedback.overall_score
+                })
+            # For backward compatibility, check the old format
+            elif conversation.overall_feedback:
                 learning_profile["conversation_history"].append({
                     "conversation_id": conversation.id,
                     "scenario": conversation.scenario,
@@ -1738,10 +1537,33 @@ def get_conversation_feedback(conversation_id):
             logger.error(f"Conversation not found: {conversation_id}")
             return jsonify({"error": "Conversation not found"}), 404
             
-        # Check if feedback exists
+        # Check if feedback exists in the new table
+        feedback = session.query(ConversationFeedback).filter_by(conversation_id=conversation_id).first()
+        
+        if feedback:
+            try:
+                # Return the feedback from the new table
+                return jsonify({
+                    "feedback_summary": feedback.feedback_summary,
+                    "main_strengths": json.loads(feedback.main_strengths) if feedback.main_strengths else [],
+                    "areas_to_improve": json.loads(feedback.areas_to_improve) if feedback.areas_to_improve else [],
+                    "grammar_score": feedback.grammar_score,
+                    "vocabulary_score": feedback.vocabulary_score,
+                    "overall_score": feedback.overall_score,
+                    "conversation_id": conversation_id,
+                    "created_at": feedback.created_at.isoformat() if feedback.created_at else None
+                }), 200
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error when retrieving feedback: {str(e)}")
+                return jsonify({
+                    "error": f"JSON parsing error in stored feedback: {str(e)}",
+                    "conversation_id": conversation_id
+                }), 500
+        
+        # Check if feedback exists in the old format (for backward compatibility)
         if conversation.overall_feedback:
             try:
-                # Return the existing feedback
+                # Return the feedback from the conversation table
                 return jsonify({
                     "feedback_summary": conversation.overall_feedback,
                     "main_strengths": json.loads(conversation.main_strengths) if conversation.main_strengths else [],
@@ -1751,304 +1573,453 @@ def get_conversation_feedback(conversation_id):
                     "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
                 }), 200
             except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error when retrieving feedback: {str(e)}")
-                # If there's an issue with the stored JSON, return a clear error
+                logger.error(f"JSON decode error when retrieving old feedback format: {str(e)}")
                 return jsonify({
                     "error": f"JSON parsing error in stored feedback: {str(e)}",
                     "conversation_id": conversation_id
                 }), 500
-            
-        # If the conversation is completed but has no feedback, generate it now
+        
+        # If no feedback exists, check if the conversation is completed
         if conversation.completed_at:
-            logger.info(f"Conversation {conversation_id} is completed but has no feedback. Generating feedback now.")
+            # If completed but no feedback, suggest generating it
+            return jsonify({
+                "message": "Conversation is completed but no feedback is available. Try ending the conversation again to generate feedback.",
+                "conversation_id": conversation_id,
+                "feedback_available": False
+            }), 200
+        else:
+            # If not completed, return appropriate message
+            return jsonify({
+                "message": "Conversation is not yet completed. End the conversation first to generate feedback.",
+                "conversation_id": conversation_id,
+                "feedback_available": False
+            }), 200
             
-            # Get all messages in this conversation
-            messages = session.query(ConversationMessage).filter_by(conversation_id=conversation_id).order_by(ConversationMessage.created_at).all()
-            
-            # Format the conversation history for the prompt
-            conversation_history = ""
-            for i, msg in enumerate(messages):
-                if msg.role == "user":
-                    conversation_history += f"Student: {msg.content}\n"
-                    # Add feedback if available
-                    if msg.feedback:
-                        feedback_json = json.loads(msg.feedback)
-                        conversation_history += "Feedback:\n"
-                        if feedback_json.get("grammar_notes"):
-                            conversation_history += "Grammar notes: " + ", ".join(feedback_json["grammar_notes"]) + "\n"
-                        if feedback_json.get("vocabulary_suggestions"):
-                            conversation_history += "Vocabulary suggestions: " + ", ".join([f"{k}: {v}" for k, v in feedback_json["vocabulary_suggestions"].items()]) + "\n"
-                        if feedback_json.get("overall_feedback"):
-                            conversation_history += f"Overall: {feedback_json['overall_feedback']}\n"
-                else:
-                    conversation_history += f"Assistant: {msg.content}\n"
-                conversation_history += "\n"
-            
-            # Get user information
-            user = session.query(User).filter_by(id=conversation.user_id).first()
-            if not user:
-                return jsonify({"error": "User not found"}), 404
-                
-            # Create the prompt
-            personalized_prompt = CONVERSATION_FEEDBACK_PROMPT.format(
-                CONVERSATION_HISTORY=conversation_history,
-                USER_SKILL_LEVEL=user.skill_level or "general",
-                USER_PROFESSION=user.profession or "general",
-                USER_HOBBIES=user.hobbies or "general",
-                USER_INTERESTS=user.interests or "general",
-                USER_GENDER=user.gender or "general"
-            )
-            
-            # Log the prompt we're sending to Claude
-            logger.info(f"Sending FEEDBACK prompt to Claude for conversation {conversation_id}:\n{personalized_prompt[:500]}...")
-            
-            # Call Claude API
-            client = Anthropic(api_key=API_KEY)
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1024,
-                temperature=0.3,
-                system=personalized_prompt,
-                messages=[{
-                    "role": "user",
-                    "content": "Please provide overall feedback for this conversation. Remember to return ONLY a valid JSON object with no newlines, starting with '{' and ending with '}'. Do not include any text, explanations, or content outside of the JSON structure."
-                }]
-            )
-            
-            # Parse the response
-            try:
-                # Get the raw text from the response and clean it
-                raw_response_text = response.content[0].text
-                logger.info(f"Raw response from Claude: {raw_response_text[:200]}...")
-                
-                # Create a fallback feedback response in case parsing fails
-                fallback_feedback = {
-                    "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                    "main_strengths": ["Participation in Icelandic conversation practice"],
-                    "areas_to_improve": ["Continue practicing with more conversations"],
-                    "overall_score": 5
-                }
-                
-                # Handle the specific error case with newline character
-                if raw_response_text.startswith('\n'):
-                    logger.info("Response starts with newline, removing it")
-                    raw_response_text = raw_response_text.lstrip()
-                
-                # Additional check for common error pattern with newline before "feedback_summary"
-                if '\n"feedback_summary"' in raw_response_text:
-                    logger.info("Found newline before feedback_summary, attempting to fix")
-                    raw_response_text = raw_response_text.replace('\n"feedback_summary"', '"feedback_summary"')
-                    
-                # Try different approaches to extract valid JSON
-                
-                # Approach 1: Find JSON between curly braces
-                json_start = raw_response_text.find('{')
-                json_end = raw_response_text.rfind('}') + 1
-                
-                logger.info(f"JSON extraction - Start index: {json_start}, End index: {json_end}")
-                
-                # Special handling for the specific error case with newlines in JSON
-                if json_start >= 0 and json_end > json_start:
-                    json_str = raw_response_text[json_start:json_end]
-                    
-                    # Check for newlines inside the JSON that might be causing issues
-                    if '\n' in json_str:
-                        logger.info("Found newlines inside JSON, attempting to clean")
-                        # Replace newlines inside the JSON with spaces
-                        cleaned_json_str = json_str.replace('\n', ' ')
-                        # Fix common issues with newlines before keys
-                        cleaned_json_str = re.sub(r'\s+"([^"]+)":', r'"\1":', cleaned_json_str)
-                        logger.info(f"Cleaned JSON string: {cleaned_json_str}")
-                        
-                        try:
-                            feedback_json = json.loads(cleaned_json_str)
-                            logger.info(f"Successfully parsed JSON after newline cleaning: {feedback_json}")
-                        except json.JSONDecodeError:
-                            # If cleaning didn't work, continue with the original approaches
-                            logger.info("Newline cleaning didn't work, continuing with original approaches")
-                            json_str = raw_response_text[json_start:json_end]
-                    else:
-                        json_str = raw_response_text[json_start:json_end]
-                    
-                    try:
-                        logger.info(f"Attempting to parse JSON string (Approach 1): {json_str}")
-                        feedback_json = json.loads(json_str)
-                        logger.info(f"Successfully parsed JSON using approach 1: {feedback_json}")
-                    except json.JSONDecodeError as json_err:
-                        # If that fails, try approach 2
-                        logger.info(f"Approach 1 failed with error: {str(json_err)}")
-                        
-                        # Approach 2: Try to clean the JSON string
-                        try:
-                            # Remove any leading/trailing whitespace or quotes
-                            json_str = json_str.strip().strip('"\'')
-                            
-                            # Replace escaped quotes
-                            json_str = json_str.replace('\\"', '"')
-                            
-                            # Fix unescaped quotes in strings
-                            json_str = re.sub(r'(?<!")(".*?[^\\]")(?!")', r'\1', json_str)
-                            
-                            # Fix trailing commas
-                            json_str = re.sub(r',\s*}', '}', json_str)
-                            json_str = re.sub(r',\s*]', ']', json_str)
-                            
-                            logger.info(f"Cleaned JSON string (Approach 2): {json_str}")
-                            feedback_json = json.loads(json_str)
-                            logger.info(f"Successfully parsed JSON using approach 2: {feedback_json}")
-                        except json.JSONDecodeError as json_err2:
-                            # If that fails, try approach 3
-                            logger.info(f"Approach 2 failed with error: {str(json_err2)}")
-                            
-                            # Approach 3: Try to manually construct the JSON
-                            try:
-                                # Extract key components using regex
-                                summary_match = re.search(r'"feedback_summary"\s*:\s*"((?:[^"\\]|\\"|\\\\)*)"', raw_response_text, re.DOTALL)
-                                strengths_match = re.search(r'"main_strengths"\s*:\s*\[(.*?)\]', raw_response_text, re.DOTALL)
-                                areas_match = re.search(r'"areas_to_improve"\s*:\s*\[(.*?)\]', raw_response_text, re.DOTALL)
-                                score_match = re.search(r'"overall_score"\s*:\s*(\d+)', raw_response_text)
-                                
-                                logger.info(f"Regex matches - Summary: {bool(summary_match)}, Strengths: {bool(strengths_match)}, Areas: {bool(areas_match)}, Score: {bool(score_match)}")
-                                
-                                if summary_match:
-                                    # Unescape any escaped quotes in the summary
-                                    summary = summary_match.group(1).replace('\\"', '"')
-                                    logger.info(f"Extracted summary: {summary}")
-                                    
-                                    feedback_json = {
-                                        "feedback_summary": summary,
-                                        "main_strengths": [],
-                                        "areas_to_improve": [],
-                                        "overall_score": int(score_match.group(1)) if score_match else 5
-                                    }
-                                    
-                                    # Process strengths
-                                    if strengths_match:
-                                        strengths_text = strengths_match.group(1)
-                                        logger.info(f"Raw strengths text: {strengths_text}")
-                                        strengths = re.findall(r'"([^"]*)"', strengths_text)
-                                        logger.info(f"Extracted strengths: {strengths}")
-                                        feedback_json["main_strengths"] = strengths
-                                    
-                                    # Process areas to improve
-                                    if areas_match:
-                                        areas_text = areas_match.group(1)
-                                        logger.info(f"Raw areas text: {areas_text}")
-                                        areas = re.findall(r'"([^"]*)"', areas_text)
-                                        logger.info(f"Extracted areas: {areas}")
-                                        feedback_json["areas_to_improve"] = areas
-                                        
-                                    logger.info(f"Successfully parsed JSON using approach 3: {feedback_json}")
-                                else:
-                                    # If regex fails, use fallback
-                                    logger.error("Approach 3 failed, using fallback")
-                                    feedback_json = fallback_feedback
-                            except Exception as e:
-                                logger.error(f"Approach 3 failed with error: {str(e)}")
-                                feedback_json = fallback_feedback
-                else:
-                    # No JSON structure found, use fallback
-                    logger.error("No JSON structure found in response")
-                    feedback_json = fallback_feedback
-                
-                # Ensure all required fields exist
-                if "feedback_summary" not in feedback_json or not feedback_json["feedback_summary"]:
-                    feedback_json["feedback_summary"] = fallback_feedback["feedback_summary"]
-                if "main_strengths" not in feedback_json or not isinstance(feedback_json["main_strengths"], list) or not feedback_json["main_strengths"]:
-                    feedback_json["main_strengths"] = fallback_feedback["main_strengths"]
-                if "areas_to_improve" not in feedback_json or not isinstance(feedback_json["areas_to_improve"], list) or not feedback_json["areas_to_improve"]:
-                    feedback_json["areas_to_improve"] = fallback_feedback["areas_to_improve"]
-                if "overall_score" not in feedback_json or not isinstance(feedback_json["overall_score"], int):
-                    feedback_json["overall_score"] = fallback_feedback["overall_score"]
-                    
-                # Update the conversation record with the feedback
-                try:
-                    # Validate that the JSON can be serialized and deserialized properly
-                    main_strengths_json = json.dumps(feedback_json["main_strengths"])
-                    areas_to_improve_json = json.dumps(feedback_json["areas_to_improve"])
-                    
-                    # Test that we can deserialize it
-                    json.loads(main_strengths_json)
-                    json.loads(areas_to_improve_json)
-                    
-                    # If we get here, the JSON is valid
-                    conversation.overall_feedback = feedback_json["feedback_summary"]
-                    conversation.main_strengths = main_strengths_json
-                    conversation.areas_to_improve = areas_to_improve_json
-                    conversation.overall_score = feedback_json["overall_score"]
-                    
-                    session.commit()
-                    logger.info(f"Successfully updated conversation {conversation_id} with feedback")
-                    
-                    return jsonify({
-                        "feedback_summary": feedback_json["feedback_summary"],
-                        "main_strengths": feedback_json["main_strengths"],
-                        "areas_to_improve": feedback_json["areas_to_improve"],
-                        "overall_score": feedback_json["overall_score"],
-                        "conversation_id": conversation_id,
-                        "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-                    }), 200
-                except Exception as e:
-                    session.rollback()
-                    logger.error(f"Error updating conversation with feedback: {str(e)}")
-                    return jsonify({"error": f"Error saving feedback: {str(e)}"}), 500
-                
-            except Exception as e:
-                logger.error(f"Error processing Claude response: {str(e)}")
-                
-                # Create a fallback feedback response
-                fallback_feedback = {
-                    "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                    "main_strengths": ["Participation in Icelandic conversation practice"],
-                    "areas_to_improve": ["Continue practicing with more conversations"],
-                    "overall_score": 5
-                }
-                
-                # Update the conversation record with the fallback feedback
-                conversation.overall_feedback = fallback_feedback["feedback_summary"]
-                conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-                conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-                conversation.overall_score = fallback_feedback["overall_score"]
-                session.commit()
-                
-                return jsonify(fallback_feedback), 200
-        
-        # If the conversation is not completed, return an error
-        return jsonify({"error": "This conversation is not completed yet. Please complete the conversation to get feedback."}), 400
-        
     except Exception as e:
         logger.error(f"Error in get_conversation_feedback: {str(e)}")
-        
-        # Check if this is the specific error with newlines in JSON
-        error_str = str(e)
-        if '\n' in error_str and 'feedback_summary' in error_str:
-            logger.info("Detected specific error with newlines in JSON, using fallback feedback")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/users/<int:user_id>/progress', methods=['GET'])
+def get_user_progress(user_id):
+    try:
+        # Get the user
+        user = session.query(User).get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
             
-            # Create a fallback feedback response
-            fallback_feedback = {
-                "feedback_summary": "We couldn't generate detailed feedback for this conversation. However, you've completed the conversation practice successfully.",
-                "main_strengths": ["Participation in Icelandic conversation practice"],
-                "areas_to_improve": ["Continue practicing with more conversations"],
-                "overall_score": 5
+        # Initialize response object
+        progress_data = {
+            "conversation": {
+                "total_conversations": 0,
+                "overall_score": {
+                    "average": 0,
+                    "last_10": []
+                },
+                "grammar_score": {
+                    "average": 0,
+                    "last_10": []
+                },
+                "vocabulary_score": {
+                    "average": 0,
+                    "last_10": []
+                },
+                "strengths": [],
+                "areas_to_improve": [],
+                "streak": {
+                    "current": 0,
+                    "longest": 0
+                }
+            },
+            "flashcards": {
+                "total_flashcards": 0,
+                "total_topics": 0,
+                "word_types": {},
+                "knowledge_levels": {
+                    "unpracticed": 0,
+                    "recognised": 0,
+                    "developing": 0,
+                    "confident": 0,
+                    "mastered": 0
+                },
+                "streak": {
+                    "current": 0,
+                    "longest": 0,
+                    "due_today": 0
+                }
             }
-            
-            # Update the conversation record with the fallback feedback
-            conversation.overall_feedback = fallback_feedback["feedback_summary"]
-            conversation.main_strengths = json.dumps(fallback_feedback["main_strengths"])
-            conversation.areas_to_improve = json.dumps(fallback_feedback["areas_to_improve"])
-            conversation.overall_score = fallback_feedback["overall_score"]
-            session.commit()
-            
-            return jsonify({
-                "feedback_summary": fallback_feedback["feedback_summary"],
-                "main_strengths": fallback_feedback["main_strengths"],
-                "areas_to_improve": fallback_feedback["areas_to_improve"],
-                "overall_score": fallback_feedback["overall_score"],
-                "conversation_id": conversation_id,
-                "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
-            }), 200
+        }
         
-        return jsonify({"error": f"Failed to retrieve feedback: {str(e)}"}), 500
+        # Get conversation data
+        conversations = session.query(Conversation).filter(
+            Conversation.user_id == user_id, 
+            Conversation.completed_at != None
+        ).order_by(Conversation.completed_at.desc()).all()
+        
+        progress_data["conversation"]["total_conversations"] = len(conversations)
+        
+        # Process conversation feedback data
+        overall_scores = []
+        grammar_scores = []
+        vocabulary_scores = []
+        all_strengths = []
+        all_areas_to_improve = []
+        
+        for conversation in conversations:
+            # Check for feedback in the new table
+            feedback = session.query(ConversationFeedback).filter_by(
+                conversation_id=conversation.id
+            ).first()
+            
+            if feedback:
+                if feedback.overall_score:
+                    overall_scores.append(feedback.overall_score)
+                if feedback.grammar_score:
+                    grammar_scores.append(feedback.grammar_score)
+                if feedback.vocabulary_score:
+                    vocabulary_scores.append(feedback.vocabulary_score)
+                
+                # Add strengths and areas to improve
+                if feedback.main_strengths:
+                    try:
+                        strengths = json.loads(feedback.main_strengths)
+                        all_strengths.extend(strengths)
+                    except json.JSONDecodeError:
+                        pass
+                
+                if feedback.areas_to_improve:
+                    try:
+                        areas = json.loads(feedback.areas_to_improve)
+                        all_areas_to_improve.extend(areas)
+                    except json.JSONDecodeError:
+                        pass
+            # For backward compatibility, check the old format
+            elif conversation.overall_score:
+                overall_scores.append(conversation.overall_score)
+                
+                # Add strengths and areas to improve
+                if conversation.main_strengths:
+                    try:
+                        strengths = json.loads(conversation.main_strengths)
+                        all_strengths.extend(strengths)
+                    except json.JSONDecodeError:
+                        pass
+                
+                if conversation.areas_to_improve:
+                    try:
+                        areas = json.loads(conversation.areas_to_improve)
+                        all_areas_to_improve.extend(areas)
+                    except json.JSONDecodeError:
+                        pass
+        
+        # Calculate averages and get last 10 scores
+        if overall_scores:
+            progress_data["conversation"]["overall_score"]["average"] = round(sum(overall_scores) / len(overall_scores), 1)
+            progress_data["conversation"]["overall_score"]["last_10"] = overall_scores[:10]
+        
+        if grammar_scores:
+            progress_data["conversation"]["grammar_score"]["average"] = round(sum(grammar_scores) / len(grammar_scores), 1)
+            progress_data["conversation"]["grammar_score"]["last_10"] = grammar_scores[:10]
+        
+        if vocabulary_scores:
+            progress_data["conversation"]["vocabulary_score"]["average"] = round(sum(vocabulary_scores) / len(vocabulary_scores), 1)
+            progress_data["conversation"]["vocabulary_score"]["last_10"] = vocabulary_scores[:10]
+        
+        # Get unique strengths and areas to improve (up to 10)
+        unique_strengths = []
+        for strength in all_strengths:
+            if strength not in unique_strengths and len(unique_strengths) < 10:
+                unique_strengths.append(strength)
+        
+        unique_areas = []
+        for area in all_areas_to_improve:
+            if area not in unique_areas and len(unique_areas) < 10:
+                unique_areas.append(area)
+        
+        progress_data["conversation"]["strengths"] = unique_strengths
+        progress_data["conversation"]["areas_to_improve"] = unique_areas
+        
+        # Get flashcard data
+        # Count total flashcards
+        total_flashcards = session.query(func.count(Flashcard.id)).filter(
+            Flashcard.user_id == user_id
+        ).scalar()
+        
+        progress_data["flashcards"]["total_flashcards"] = total_flashcards
+        
+        # Count total topics
+        total_topics = session.query(func.count(distinct(FlashcardGeneration.flashcard_topic))).filter(
+            FlashcardGeneration.user_id == user_id
+        ).scalar()
+        
+        # If no topics found, set to 0 instead of None
+        if total_topics is None:
+            total_topics = 0
+            
+        progress_data["flashcards"]["total_topics"] = total_topics
+        
+        # Get word types distribution
+        flashcards = session.query(Flashcard).filter(
+            Flashcard.user_id == user_id
+        ).all()
+        
+        word_types = {}
+        for flashcard in flashcards:
+            if flashcard.additional_info:
+                # Try multiple approaches to extract the word type
+                word_type = "Unknown"
+                
+                # First try: Parse as JSON
+                try:
+                    info = json.loads(flashcard.additional_info)
+                    if isinstance(info, dict):
+                        # Check for various possible keys that might contain word type
+                        for key in ["type", "word_type", "part_of_speech", "pos"]:
+                            if key in info and info[key]:
+                                word_type = info[key]
+                                break
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+                
+                # Second try: Look for common patterns in the text
+                if word_type == "Unknown":
+                    patterns = [
+                        r"Type:\s*([^,\n]+)",
+                        r"Word type:\s*([^,\n]+)",
+                        r"Part of speech:\s*([^,\n]+)",
+                        r"POS:\s*([^,\n]+)",
+                        r"Grammar:\s*([^,\n]+)"
+                    ]
+                    
+                    for pattern in patterns:
+                        match = re.search(pattern, str(flashcard.additional_info), re.IGNORECASE)
+                        if match:
+                            word_type = match.group(1).strip()
+                            break
+                
+                # Clean up the word type
+                word_type = re.sub(r"\s*\([^)]*\)", "", word_type).strip()
+                
+                # Normalize common word types
+                word_type_lower = word_type.lower()
+                if word_type_lower in ["noun", "nafnorð", "nafnord"]:
+                    word_type = "Noun"
+                elif word_type_lower in ["verb", "sagnorð", "sagnord"]:
+                    word_type = "Verb"
+                elif word_type_lower in ["adjective", "lýsingarorð", "lysingarord"]:
+                    word_type = "Adjective"
+                elif word_type_lower in ["adverb", "atviksorð", "atviksord"]:
+                    word_type = "Adverb"
+                elif word_type_lower in ["pronoun", "fornafn"]:
+                    word_type = "Pronoun"
+                elif word_type_lower in ["preposition", "forsetning"]:
+                    word_type = "Preposition"
+                elif word_type_lower in ["conjunction", "samtenging"]:
+                    word_type = "Conjunction"
+                elif word_type_lower in ["interjection", "upphrópun", "upphrópun"]:
+                    word_type = "Interjection"
+                elif word_type == "Unknown" or not word_type:
+                    word_type = "Unknown"
+                
+                # Add to the count
+                if word_type in word_types:
+                    word_types[word_type] += 1
+                else:
+                    word_types[word_type] = 1
+        
+        # Ensure we have at least one category
+        if not word_types:
+            word_types["Unknown"] = total_flashcards
+            
+        progress_data["flashcards"]["word_types"] = word_types
+        
+        # Get knowledge levels based on next_repetition_space
+        for flashcard in flashcards:
+            if flashcard.next_repetition_space == 1:
+                progress_data["flashcards"]["knowledge_levels"]["unpracticed"] += 1
+            elif 2 <= flashcard.next_repetition_space <= 10:
+                progress_data["flashcards"]["knowledge_levels"]["recognised"] += 1
+            elif 11 <= flashcard.next_repetition_space <= 30:
+                progress_data["flashcards"]["knowledge_levels"]["developing"] += 1
+            elif 31 <= flashcard.next_repetition_space <= 180:
+                progress_data["flashcards"]["knowledge_levels"]["confident"] += 1
+            else:  # > 180 days
+                progress_data["flashcards"]["knowledge_levels"]["mastered"] += 1
+        
+        # Get practice streak data
+        streaks = session.query(PracticeStreak).filter(
+            PracticeStreak.user_id == user_id
+        ).all()
+        
+        for streak in streaks:
+            if streak.practice_type == 'flashcard':
+                progress_data["flashcards"]["streak"]["current"] = streak.current_streak
+                progress_data["flashcards"]["streak"]["longest"] = streak.longest_streak
+            elif streak.practice_type == 'conversation':
+                progress_data["conversation"]["streak"]["current"] = streak.current_streak
+                progress_data["conversation"]["streak"]["longest"] = streak.longest_streak
+        
+        # Get due flashcards count
+        due_flashcards = session.query(func.count(Flashcard.id)).filter(
+            Flashcard.user_id == user_id,
+            Flashcard.next_practice_time <= func.now()
+        ).scalar()
+        
+        progress_data["flashcards"]["streak"]["due_today"] = due_flashcards or 0
+        
+        return jsonify(progress_data), 200
+            
+    except Exception as e:
+        print(f"Error in get_user_progress: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# Add these new API endpoints for practice streaks
+
+@app.route('/users/<int:user_id>/practice-sessions/start', methods=['POST'])
+def start_practice_session(user_id):
+    """Start a new practice session and record it in the database."""
+    try:
+        data = request.get_json()
+        practice_type = data.get('practice_type')  # 'flashcard' or 'conversation'
+        
+        if not practice_type or practice_type not in ['flashcard', 'conversation']:
+            return jsonify({"error": "Invalid practice type"}), 400
+            
+        # Create a new practice session
+        new_session = PracticeSession(
+            user_id=user_id,
+            practice_type=practice_type,
+            session_data=json.dumps(data.get('session_data', {}))
+        )
+        
+        session.add(new_session)
+        session.commit()
+        
+        return jsonify({
+            "message": "Practice session started",
+            "session_id": new_session.id
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error starting practice session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/users/<int:user_id>/practice-sessions/<int:session_id>/complete', methods=['POST'])
+def complete_practice_session(user_id, session_id):
+    """Complete a practice session and update the user's streak."""
+    try:
+        # Get the practice session
+        practice_session = session.query(PracticeSession).filter(
+            PracticeSession.id == session_id,
+            PracticeSession.user_id == user_id
+        ).first()
+        
+        if not practice_session:
+            return jsonify({"error": "Practice session not found"}), 404
+            
+        if practice_session.completed_at:
+            return jsonify({"error": "Practice session already completed"}), 400
+            
+        # Mark the session as completed
+        practice_session.completed_at = datetime.now()
+        
+        # Get or create the practice streak record
+        practice_streak = session.query(PracticeStreak).filter(
+            PracticeStreak.user_id == user_id,
+            PracticeStreak.practice_type == practice_session.practice_type
+        ).first()
+        
+        if not practice_streak:
+            # Create a new streak record
+            practice_streak = PracticeStreak(
+                user_id=user_id,
+                practice_type=practice_session.practice_type,
+                current_streak=1,
+                longest_streak=1,
+                last_practice_date=datetime.now()
+            )
+            session.add(practice_streak)
+        else:
+            # Check if the streak should be updated
+            today = datetime.now().date()
+            
+            if practice_streak.last_practice_date:
+                last_practice_date = practice_streak.last_practice_date.date()
+                
+                # If already practiced today, don't update streak
+                if last_practice_date == today:
+                    pass
+                # If practiced yesterday, increment streak
+                elif last_practice_date == today - timedelta(days=1):
+                    practice_streak.current_streak += 1
+                    # Update longest streak if current streak is longer
+                    if practice_streak.current_streak > practice_streak.longest_streak:
+                        practice_streak.longest_streak = practice_streak.current_streak
+                # If missed a day, reset streak to 1
+                else:
+                    practice_streak.current_streak = 1
+            else:
+                # First time practicing
+                practice_streak.current_streak = 1
+                
+            # Update last practice date
+            practice_streak.last_practice_date = datetime.now()
+        
+        session.commit()
+        
+        return jsonify({
+            "message": "Practice session completed",
+            "current_streak": practice_streak.current_streak,
+            "longest_streak": practice_streak.longest_streak
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error completing practice session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/users/<int:user_id>/practice-streaks', methods=['GET'])
+def get_practice_streaks(user_id):
+    """Get the user's practice streaks for both flashcard and conversation practice."""
+    try:
+        # Get the user's practice streaks
+        streaks = session.query(PracticeStreak).filter(
+            PracticeStreak.user_id == user_id
+        ).all()
+        
+        # Initialize response with default values
+        streak_data = {
+            "flashcard": {
+                "current_streak": 0,
+                "longest_streak": 0,
+                "last_practice_date": None
+            },
+            "conversation": {
+                "current_streak": 0,
+                "longest_streak": 0,
+                "last_practice_date": None
+            }
+        }
+        
+        # Update with actual streak data
+        for streak in streaks:
+            practice_type = streak.practice_type
+            last_practice_date = None
+            
+            if streak.last_practice_date:
+                last_practice_date = streak.last_practice_date.isoformat()
+                
+            streak_data[practice_type] = {
+                "current_streak": streak.current_streak,
+                "longest_streak": streak.longest_streak,
+                "last_practice_date": last_practice_date
+            }
+        
+        return jsonify(streak_data), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting practice streaks: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 # ---------------------------
 # Main Entry Point

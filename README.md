@@ -2,15 +2,13 @@
 Project to create an LLM powered personalised Icelandic language learning aid. 
 
 ## Features
-This version includes a more complete prototype, with:
+This version has the first version of the complete prototype, with:
 
-- Flashcard generator, practice area and library browser
-- Conversation scenario section with feedback side pane 
-- User account area, with personalised user information used when generating flashcards and conversations
+- Flashcard generator, practice area and library browser. The practice area now includes spaced repetition practice mode.
+- Conversation scenario section with feedback side pane and overall feedback summaries generated when the conversation ends. 
+- User account area, with learner progress dashboards to motivate and track learning, and areas to access and change personalised user information.
 
 Things left to do:
 
-- Fix the feedback summary for the conversation generator. It needs to generate a summary and display this on conversation end, but this is still not working
-- Include a feedback tracking in the user's journey that summarises their overall progress
-- Add a 'feedback to developers' button on all pages for prototype testing
-- Deploy the app and test
+- Deploy the prototype and test
+- Need to think of how to receive and analyse feedback on prototype from test users

@@ -9,15 +9,21 @@ import PracticeSetup from './components/PracticeSetup';
 import PracticeSession from './components/PracticeSession';
 import ConversationalPractice from './components/ConversationalPractice';
 import AccountSettings from './components/AccountSettings';
+import LearnerProgress from './components/LearnerProgress';
 
 const App = () => {
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
-    // Clear any existing auth data on initial load
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userEmail');
+    // Check for existing auth data on initial load
+    const storedUserId = localStorage.getItem('userId');
+    const storedUserEmail = localStorage.getItem('userEmail');
+    
+    if (storedUserId && storedUserEmail) {
+      setUserId(storedUserId);
+      setUserEmail(storedUserEmail);
+    }
   }, []);
 
   const handleLogin = (id, email) => {
@@ -77,6 +83,19 @@ const App = () => {
             element={
               userId ? (
                 <AccountSettings 
+                  userId={userId} 
+                  onLogout={handleLogout}
+                />
+              ) : (
+                <Navigate to="/" />
+              )
+            } 
+          />
+          <Route 
+            path="/progress" 
+            element={
+              userId ? (
+                <LearnerProgress 
                   userId={userId} 
                   onLogout={handleLogout}
                 />

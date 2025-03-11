@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HomeButton from './HomeButton';
 import LogoutButton from './LogoutButton';
+import LearnerProgress from './LearnerProgress';
 
 const AccountSettings = ({ userId, onLogout }) => {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ const AccountSettings = ({ userId, onLogout }) => {
   });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [activeSection, setActiveSection] = useState('progress'); // Default to progress
 
   useEffect(() => {
     fetchUserData();
@@ -64,95 +66,144 @@ const AccountSettings = ({ userId, onLogout }) => {
     }
   };
 
+  const renderLoginDetails = () => {
+    return (
+      <div className="account-section">
+        <h2>Login Details</h2>
+        <div className="form-group">
+          <label>Email</label>
+          <input
+            type="email"
+            name="email"
+            value={userData.email}
+            disabled
+          />
+        </div>
+
+        <div className="form-group">
+          <label>New Password (leave blank to keep current)</label>
+          <input
+            type="password"
+            name="password"
+            value={userData.password}
+            onChange={handleChange}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderLearnerPersonalisation = () => {
+    return (
+      <div className="account-section">
+        <h2>Learner Personalisation</h2>
+        <div className="form-group">
+          <label>Profession</label>
+          <input
+            type="text"
+            name="profession"
+            value={userData.profession}
+            onChange={handleChange}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Hobbies</label>
+          <input
+            type="text"
+            name="hobbies"
+            value={userData.hobbies}
+            onChange={handleChange}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Interests</label>
+          <input
+            type="text"
+            name="interests"
+            value={userData.interests}
+            onChange={handleChange}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Skill Level</label>
+          <select
+            name="skill_level"
+            value={userData.skill_level}
+            onChange={handleChange}
+          >
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label>Additional Information</label>
+          <textarea
+            name="additional_info"
+            value={userData.additional_info}
+            onChange={handleChange}
+            rows="4"
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="container" style={{ position: 'relative', padding: '20px' }}>
-      <HomeButton />
-      <LogoutButton onLogout={onLogout} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <HomeButton />
+        <LogoutButton onLogout={onLogout} />
+      </div>
       
-      <div style={{ maxWidth: '600px', margin: '0 auto', paddingTop: '40px' }}>
-        <h1 style={{ color: '#5DADE2', textAlign: 'center' }}>Account Settings</h1>
-        
-        {message && <div className="message">{message}</div>}
-        {error && <div className="error">{error}</div>}
+      <h1 style={{ color: '#5DADE2', textAlign: 'center', marginBottom: '30px' }}>User Profile</h1>
+      
+      {message && <div className="message">{message}</div>}
+      {error && <div className="error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="form-group">
-          <div className="form-group">
-            <label>Email</label>
-            <input
-              type="email"
-              name="email"
-              value={userData.email}
-              disabled
-            />
+      <div className="account-settings-container">
+        {/* Left-side menu */}
+        <div className="account-menu">
+          <div 
+            className={`account-menu-item ${activeSection === 'progress' ? 'active' : ''}`}
+            onClick={() => setActiveSection('progress')}
+          >
+            Learner Progress
           </div>
-
-          <div className="form-group">
-            <label>New Password (leave blank to keep current)</label>
-            <input
-              type="password"
-              name="password"
-              value={userData.password}
-              onChange={handleChange}
-            />
+          <div 
+            className={`account-menu-item ${activeSection === 'login' ? 'active' : ''}`}
+            onClick={() => setActiveSection('login')}
+          >
+            Login Details
           </div>
-
-          <div className="form-group">
-            <label>Profession</label>
-            <input
-              type="text"
-              name="profession"
-              value={userData.profession}
-              onChange={handleChange}
-            />
+          <div 
+            className={`account-menu-item ${activeSection === 'learner' ? 'active' : ''}`}
+            onClick={() => setActiveSection('learner')}
+          >
+            Learner Personalisation
           </div>
+        </div>
 
-          <div className="form-group">
-            <label>Hobbies</label>
-            <input
-              type="text"
-              name="hobbies"
-              value={userData.hobbies}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Interests</label>
-            <input
-              type="text"
-              name="interests"
-              value={userData.interests}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Skill Level</label>
-            <select
-              name="skill_level"
-              value={userData.skill_level}
-              onChange={handleChange}
-            >
-              <option value="beginner">Beginner</option>
-              <option value="intermediate">Intermediate</option>
-              <option value="advanced">Advanced</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Additional Information</label>
-            <textarea
-              name="additional_info"
-              value={userData.additional_info}
-              onChange={handleChange}
-              rows="4"
-            />
-          </div>
-
-          <button type="submit" style={{ width: '100%', marginTop: '20px' }}>
-            Save Changes
-          </button>
-        </form>
+        {/* Right-side content */}
+        <div className="account-content">
+          {activeSection === 'progress' && (
+            <LearnerProgress userId={userId} onLogout={onLogout} isEmbedded={true} />
+          )}
+          
+          {activeSection !== 'progress' && (
+            <form onSubmit={handleSubmit} className="form-group">
+              {activeSection === 'login' ? renderLoginDetails() : renderLearnerPersonalisation()}
+              
+              <button type="submit" style={{ width: '100%', marginTop: '20px' }}>
+                Save Changes
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
