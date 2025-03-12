@@ -72,12 +72,8 @@ const PracticeSetup = () => {
   }, [selectedTopic, userId, practiceMode]);
 
   const handleStartPractice = () => {
-    // Construct the URL based on practice type
-    const apiUrl = practiceMode === 'spaced'
-      ? `${config.API_URL}/users/${userId}/spaced-practice?topic=${selectedTopic.value}`
-      : `${config.API_URL}/users/${userId}/practice?topic=${selectedTopic.value}&num_flashcards=${quantity}`;
-    
-    navigate(apiUrl, {
+    // Include critical parameters in the URL for persistence on refresh
+    navigate(`/practice?topic=${encodeURIComponent(selectedTopic.value)}&mode=${practiceMode}&quantity=${quantity}`, {
       state: {
         topic: selectedTopic.value,
         quantity: quantity,
