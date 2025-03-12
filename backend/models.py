@@ -1,6 +1,7 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, TIMESTAMP
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, TIMESTAMP, DateTime
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
 
 Base = declarative_base()
 
@@ -16,7 +17,7 @@ class User(Base):
     skill_level = Column(String(50))
     gender = Column(String(50), default='neutral')
     additional_info = Column(Text)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
     flashcard_libraries = relationship('FlashcardLibrary', back_populates='user')
     generations = relationship('FlashcardGeneration', back_populates='user')
@@ -30,7 +31,7 @@ class FlashcardLibrary(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     library_name = Column(String(255), nullable=False)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
     user = relationship('User', back_populates='flashcard_libraries')
     flashcards = relationship('Flashcard', back_populates='library')
@@ -44,9 +45,9 @@ class Flashcard(Base):
     front_text = Column(String(255), nullable=False)  # English text
     back_text = Column(String(255), nullable=False)  # Icelandic text
     additional_info = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
     next_repetition_space = Column(Integer, default=1, nullable=False)  # Default 1 day in days
-    next_practice_time = Column(TIMESTAMP, server_default=func.now(), nullable=False)  # Default to creation time
+    next_practice_time = Column(DateTime, server_default=func.now(), nullable=False)  # Default to creation time
 
     library = relationship('FlashcardLibrary', back_populates='flashcards')
 
@@ -60,7 +61,7 @@ class FlashcardGeneration(Base):
     skill_level = Column(String(50), nullable=False)
     speaker_profile = Column(Text, nullable=False)
     raw_output = Column(Text, nullable=True)  # Store the JSON response
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
     user = relationship('User', back_populates='generations')
 
@@ -71,7 +72,7 @@ class Analytics(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     event_type = Column(String(50), nullable=False)
     event_data = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
     user = relationship('User', back_populates='analytics')
 
@@ -81,8 +82,8 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     scenario = Column(Text, nullable=False)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    completed_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    completed_at = Column(DateTime, nullable=True)
     overall_score = Column(Integer, nullable=True)
     overall_feedback = Column(Text, nullable=True)
     main_strengths = Column(Text, nullable=True)
@@ -100,7 +101,7 @@ class ConversationMessage(Base):
     role = Column(String(50), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
     feedback = Column(Text, nullable=True)  # JSON string containing feedback
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
     
     # Relationship
     conversation = relationship('Conversation', back_populates='messages')
@@ -117,7 +118,7 @@ class ConversationFeedback(Base):
     overall_score = Column(Integer, nullable=True)
     grammar_score = Column(Integer, nullable=True)  # Score from 0-10 for grammatical accuracy
     vocabulary_score = Column(Integer, nullable=True)  # Score from 0-10 for vocabulary quality
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
     user = relationship('User', backref='conversation_feedbacks')
@@ -131,9 +132,9 @@ class PracticeStreak(Base):
     practice_type = Column(String(50), nullable=False)  # 'flashcard' or 'conversation'
     current_streak = Column(Integer, default=0, nullable=False)
     longest_streak = Column(Integer, default=0, nullable=False)
-    last_practice_date = Column(TIMESTAMP, nullable=True)
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    last_practice_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship('User', back_populates='practice_streaks')
 
@@ -144,7 +145,7 @@ class PracticeSession(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     practice_type = Column(String(50), nullable=False)  # 'flashcard' or 'conversation'
     session_data = Column(Text, nullable=True)  # JSON data about the session
-    started_at = Column(TIMESTAMP, server_default=func.now())
-    completed_at = Column(TIMESTAMP, nullable=True)
+    started_at = Column(DateTime, server_default=func.now())
+    completed_at = Column(DateTime, nullable=True)
 
     user = relationship('User', foreign_keys=[user_id])

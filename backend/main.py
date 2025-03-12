@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
 import re
 from datetime import datetime, timedelta
+import urllib.parse
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -17,10 +18,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------
 # Load Environment Variables
 # ---------------------------
+# Load API Key from APIKey.env
 load_dotenv("C:/Users/User/PycharmProjects/IcelandicLearningAid/APIKey.env")
 API_KEY = os.getenv("APIKey")
 if not API_KEY:
     raise ValueError("Please set the ANTHROPIC_API_KEY environment variable in APIKey.env")
+
+# Try to load PostgreSQL environment variables from postgres.env in a secure location
+postgres_env_path = "C:/Users/User/PycharmProjects/IcelandicLearningAid/postgres.env"  # Update this path to your actual location
+if os.path.exists(postgres_env_path):
+    load_dotenv(postgres_env_path)
+    logger.info(f"Loaded PostgreSQL environment variables from {postgres_env_path}")
+else:
+    logger.warning(f"PostgreSQL environment file not found at {postgres_env_path}")
+
+# Get PostgreSQL connection details from environment variables
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME")
 
 # ---------------------------
 # SQLAlchemy Setup & Database Models
@@ -30,8 +47,30 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
 
 # Database configuration
-DATABASE_URL = "sqlite:///AppDatabase.db"
-engine = create_engine(DATABASE_URL, echo=False)  # Add echo=True for debugging
+# Check if PostgreSQL environment variables are set, otherwise fall back to SQLite
+if all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+    # URL encode the password to handle special characters
+    encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
+    DATABASE_URL = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    
+    # PostgreSQL-specific engine configuration
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,  # Set to True for debugging
+        pool_size=5,  # Maximum number of connections to keep open
+        max_overflow=10,  # Maximum number of connections to create above pool_size
+        pool_timeout=30,  # Timeout for getting a connection from the pool
+        pool_recycle=1800,  # Recycle connections after 30 minutes
+        connect_args={
+            "sslmode": "require"  # Required for Render.com PostgreSQL
+        }
+    )
+    logger.info("Using PostgreSQL database")
+else:
+    DATABASE_URL = "sqlite:///AppDatabase.db"
+    logger.warning("PostgreSQL environment variables not set, falling back to SQLite")
+    engine = create_engine(DATABASE_URL, echo=False)
+
 Session = sessionmaker(bind=engine)
 session = Session()
 

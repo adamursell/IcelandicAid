@@ -46,6 +46,7 @@ APIKey.env
 
 # Virtual environments
 REIVenv/
+venv/
 
 # Dependency management (if applicable beyond venv)
 backend/poetry.lock       # If using Poetry (remove requirements.txt if using Poetry exclusively)
