@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import config from '../config';
 import HomeButton from './HomeButton';
 
 // Typing indicator component with animated dots
@@ -249,7 +250,7 @@ const ConversationalPractice = ({ userId }) => {
     setHasUserResponded(false);
     
     try {
-      const response = await axios.post('http://localhost:5000/start_conversation', {
+      const response = await axios.post(`${config.API_URL}/start_conversation`, {
         user_id: userId,
         scenario: scenario
       });
@@ -292,7 +293,7 @@ const ConversationalPractice = ({ userId }) => {
     setHasUserResponded(true);
     
     try {
-      const response = await axios.post('http://localhost:5000/chat', {
+      const response = await axios.post(`${config.API_URL}/chat`, {
         user_id: userId,
         conversation_id: conversationId,
         message: newUserMessage.content
@@ -339,7 +340,7 @@ const ConversationalPractice = ({ userId }) => {
         setTimeout(async () => {
           try {
             // Fetch the feedback
-            const feedbackResponse = await axios.get(`http://localhost:5000/conversations/${conversationId}/feedback`);
+            const feedbackResponse = await axios.get(`${config.API_URL}/conversations/${conversationId}/feedback`);
             
             if (feedbackResponse.data && feedbackResponse.data.feedback_summary) {
               setOverallFeedback(feedbackResponse.data);
@@ -378,7 +379,7 @@ const ConversationalPractice = ({ userId }) => {
     try {
       console.log("Ending conversation with ID:", conversationId);
       
-      const response = await axios.post('http://localhost:5000/end_conversation', {
+      const response = await axios.post(`${config.API_URL}/end_conversation`, {
         user_id: userId,
         conversation_id: conversationId
       });
@@ -438,7 +439,7 @@ const ConversationalPractice = ({ userId }) => {
         setTimeout(() => reject(new Error('Request timed out')), 30000)
       );
       
-      const fetchPromise = axios.get(`http://localhost:5000/conversations/${conversationId}/feedback`);
+      const fetchPromise = axios.get(`${config.API_URL}/conversations/${conversationId}/feedback`);
       
       // Race between the fetch and the timeout
       const response = await Promise.race([fetchPromise, timeoutPromise]);

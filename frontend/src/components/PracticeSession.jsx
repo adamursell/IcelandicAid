@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import HomeButton from './HomeButton';
+import config from '../config';
 
 const PracticeSession = () => {
   const location = useLocation();
@@ -22,7 +23,7 @@ const PracticeSession = () => {
         const { topic, quantity, practiceMode } = location.state;
         
         // Start a new practice session
-        const sessionResponse = await fetch(`http://localhost:5000/users/${userId}/practice-sessions/start`, {
+        const sessionResponse = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -42,12 +43,12 @@ const PracticeSession = () => {
           setSessionId(sessionData.session_id);
         }
         
-        // Different endpoints for different practice modes
-        const endpoint = practiceMode === 'spaced' 
-          ? `http://localhost:5000/users/${userId}/spaced-practice?topic=${topic}`
-          : `http://localhost:5000/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
+        // Construct the API URL based on practice mode
+        const apiUrl = practiceMode === 'spaced'
+          ? `${config.API_URL}/users/${userId}/spaced-practice?topic=${topic}`
+          : `${config.API_URL}/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
         
-        const response = await fetch(endpoint);
+        const response = await fetch(apiUrl);
         const data = await response.json();
         
         if (data.flashcards.length === 0) {
@@ -74,7 +75,7 @@ const PracticeSession = () => {
     // For simple practice mode
     if (location.state.practiceMode === 'simple') {
       try {
-        const response = await fetch(`http://localhost:5000/users/${userId}/practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -103,7 +104,7 @@ const PracticeSession = () => {
       try {
         console.log(`Marking card ${flashcards[currentIndex].id} as incorrect`);
         
-        const response = await fetch(`http://localhost:5000/users/${userId}/spaced-practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -172,7 +173,7 @@ const PracticeSession = () => {
       try {
         console.log(`Marking card ${flashcards[currentIndex].id} as correct`);
         
-        const response = await fetch(`http://localhost:5000/users/${userId}/spaced-practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -239,7 +240,7 @@ const PracticeSession = () => {
     if (!sessionId) return;
     
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}/practice-sessions/${sessionId}/complete`, {
+      const response = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/${sessionId}/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

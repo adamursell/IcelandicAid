@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Button, TextField, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { styled } from '@mui/material/styles';
+import { useNavigate } from 'react-router-dom';
+import HomeButton from './HomeButton';
+import LogoutButton from './LogoutButton';
+import config from '../config';
 
 const StyledDialog = styled(Dialog)(({ theme }) => ({
   '& .MuiDialog-paper': {
@@ -51,9 +55,12 @@ const UserAccount = ({ open, onClose, userId }) => {
 
   const fetchUserData = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}`);
-      const data = await response.json();
-      setUserData({ ...data, password: '' }); // Clear password field
+      const response = await fetch(`${config.API_URL}/users/${userId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user data');
+      }
+      const userData = await response.json();
+      setUserData(userData);
     } catch (error) {
       console.error('Error fetching user data:', error);
     }
@@ -62,7 +69,7 @@ const UserAccount = ({ open, onClose, userId }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}`, {
+      const response = await fetch(`${config.API_URL}/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

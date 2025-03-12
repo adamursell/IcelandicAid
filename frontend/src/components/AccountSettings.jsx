@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import HomeButton from './HomeButton';
 import LogoutButton from './LogoutButton';
 import LearnerProgress from './LearnerProgress';
+import config from '../config';
 
 const AccountSettings = ({ userId, onLogout }) => {
   const navigate = useNavigate();
@@ -26,9 +27,12 @@ const AccountSettings = ({ userId, onLogout }) => {
 
   const fetchUserData = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}`);
-      const data = await response.json();
-      setUserData({ ...data, password: '' });
+      const response = await fetch(`${config.API_URL}/users/${userId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user data');
+      }
+      const userData = await response.json();
+      setUserData({ ...userData, password: '' });
     } catch (error) {
       console.error('Error fetching user data:', error);
       setError('Failed to load user data');
@@ -45,7 +49,7 @@ const AccountSettings = ({ userId, onLogout }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}`, {
+      const response = await fetch(`${config.API_URL}/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

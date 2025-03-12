@@ -341,6 +341,14 @@ Output only valid JSON with no additional text or explanations. Every flashcard 
 def health_check():
     return jsonify({"message": "API is running!"}), 200
 
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({"message": "Kenni API - Welcome! Use /health to check API status."}), 200
+
+@app.route('/favicon.ico')
+def favicon():
+    return "", 204  # No content response
+
 ################# Login and registering endpoints
 @app.route('/register', methods=['POST'])
 def register():
