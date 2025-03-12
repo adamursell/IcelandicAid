@@ -18,26 +18,28 @@ logger = logging.getLogger(__name__)
 # ---------------------------
 # Load Environment Variables
 # ---------------------------
-# Load API Key from APIKey.env
-load_dotenv("C:/Users/User/PycharmProjects/IcelandicLearningAid/APIKey.env")
-API_KEY = os.getenv("APIKey")
+# Load environment variables
+load_dotenv()  # This will load from .env file in the current directory if it exists
+API_KEY = os.getenv("APIKey") or os.getenv("ANTHROPIC_API_KEY")
 if not API_KEY:
-    raise ValueError("Please set the ANTHROPIC_API_KEY environment variable in APIKey.env")
+    logger.warning("API key not found in environment variables. Some features may not work.")
 
-# Try to load PostgreSQL environment variables from postgres.env in a secure location
-postgres_env_path = "C:/Users/User/PycharmProjects/IcelandicLearningAid/postgres.env"  # Update this path to your actual location
-if os.path.exists(postgres_env_path):
-    load_dotenv(postgres_env_path)
-    logger.info(f"Loaded PostgreSQL environment variables from {postgres_env_path}")
-else:
-    logger.warning(f"PostgreSQL environment file not found at {postgres_env_path}")
-
-# Get PostgreSQL connection details from environment variables
+# Database configuration
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME")
+DATABASE_URL = os.getenv("DATABASE_URL")  # For Render PostgreSQL
+
+# Remove the hardcoded paths for security and portability
+# Try to load PostgreSQL environment variables from postgres.env in a secure location
+postgres_env_path = os.getenv("POSTGRES_ENV_PATH")
+if postgres_env_path and os.path.exists(postgres_env_path):
+    load_dotenv(postgres_env_path)
+    logger.info(f"Loaded PostgreSQL environment variables from {postgres_env_path}")
+else:
+    logger.warning(f"PostgreSQL environment file not found at {postgres_env_path}")
 
 # ---------------------------
 # SQLAlchemy Setup & Database Models
@@ -47,15 +49,30 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
 
 # Database configuration
+# Check if DATABASE_URL is provided (common in cloud environments like Render)
+if DATABASE_URL:
+    # Use the DATABASE_URL provided by Render
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+        pool_recycle=1800,
+        connect_args={
+            "sslmode": "require"  # Required for Render.com PostgreSQL
+        }
+    )
+    logger.info("Using PostgreSQL database from DATABASE_URL")
 # Check if PostgreSQL environment variables are set, otherwise fall back to SQLite
-if all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+elif all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
     # URL encode the password to handle special characters
     encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
-    DATABASE_URL = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    db_url = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     
     # PostgreSQL-specific engine configuration
     engine = create_engine(
-        DATABASE_URL,
+        db_url,
         echo=False,  # Set to True for debugging
         pool_size=5,  # Maximum number of connections to keep open
         max_overflow=10,  # Maximum number of connections to create above pool_size
@@ -65,11 +82,11 @@ if all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
             "sslmode": "require"  # Required for Render.com PostgreSQL
         }
     )
-    logger.info("Using PostgreSQL database")
+    logger.info("Using PostgreSQL database from environment variables")
 else:
-    DATABASE_URL = "sqlite:///AppDatabase.db"
+    db_url = "sqlite:///AppDatabase.db"
     logger.warning("PostgreSQL environment variables not set, falling back to SQLite")
-    engine = create_engine(DATABASE_URL, echo=False)
+    engine = create_engine(db_url, echo=False)
 
 Session = sessionmaker(bind=engine)
 session = Session()
@@ -2064,5 +2081,6 @@ def get_practice_streaks(user_id):
 # Main Entry Point
 # ---------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-    # app.run(debug=True)
+    # Use environment variable for port with a default of 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
