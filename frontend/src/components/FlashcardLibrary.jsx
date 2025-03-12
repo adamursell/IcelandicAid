@@ -4,6 +4,7 @@ import axios from 'axios';
 import HomeButton from './HomeButton';
 import LogoutButton from './LogoutButton';
 import Select from 'react-select';
+import config from '../config';
 
 const FlashcardLibrary = ({ userId, onLogout }) => {
   const [flashcards, setFlashcards] = useState([]);
@@ -27,7 +28,7 @@ const FlashcardLibrary = ({ userId, onLogout }) => {
   useEffect(() => {
     const fetchFlashcards = async () => {
       try {
-        const response = await axios.get(`http://127.0.0.1:5000/users/${userId}/flashcards`);
+        const response = await axios.get(`${config.API_URL}/users/${userId}/flashcards`);
         // Sort the flashcards when they're first fetched
         const sortedFlashcards = [...(response.data.flashcards || [])].sort((a, b) => {
           // First, sort by topic
@@ -79,7 +80,7 @@ const FlashcardLibrary = ({ userId, onLogout }) => {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`http://127.0.0.1:5000/flashcards/${id}`);
+      await axios.delete(`${config.API_URL}/flashcards/${id}`);
       setFlashcards(flashcards.filter(fc => fc.id !== id));
     } catch (err) {
       console.error('Failed to delete flashcard:', err);
@@ -93,7 +94,7 @@ const FlashcardLibrary = ({ userId, onLogout }) => {
 
   const handleSave = async (id) => {
     try {
-      await axios.put(`http://127.0.0.1:5000/flashcards/${id}`, editedCard);
+      await axios.put(`${config.API_URL}/flashcards/${id}`, editedCard);
       setFlashcards(flashcards.map(card => 
         card.id === id ? editedCard : card
       ));
