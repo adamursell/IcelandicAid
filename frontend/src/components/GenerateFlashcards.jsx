@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import HomeButton from './HomeButton';
+import config from '../config';
 
 const GenerateFlashcards = ({ userId }) => {
   const [topic, setTopic] = useState('');
@@ -19,7 +20,7 @@ const GenerateFlashcards = ({ userId }) => {
     try {
       console.log('Sending request with:', { userId, topic, quantity });
       
-      const response = await axios.post('http://127.0.0.1:5000/generate_flashcards', {
+      const response = await axios.post(`${config.API_URL}/generate_flashcards`, {
         user_id: userId,
         topic: topic,
         quantity: quantity
@@ -43,7 +44,7 @@ const GenerateFlashcards = ({ userId }) => {
   const handleSaveToLibrary = async (flashcard) => {
     try {
       console.log('Saving flashcard:', flashcard);
-      const response = await axios.post('http://127.0.0.1:5000/save_to_library', {
+      const response = await axios.post(`${config.API_URL}/save_to_library`, {
         user_id: userId,
         flashcard: {
           ...flashcard,
@@ -66,7 +67,7 @@ const GenerateFlashcards = ({ userId }) => {
     try {
         // Save each flashcard in the array
         const savePromises = generatedFlashcards.map(flashcard => 
-            axios.post('http://127.0.0.1:5000/save_to_library', {
+            axios.post(`${config.API_URL}/save_to_library`, {
                 user_id: userId,
                 flashcard: {
                     front: flashcard.front,

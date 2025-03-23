@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import config from '../config';
 
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
@@ -10,7 +11,7 @@ const Login = ({ onLogin }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://127.0.0.1:5000/login', { email, password });
+      const response = await axios.post(`${config.API_URL}/login`, { email, password });
       onLogin(response.data.user_id, email);
     } catch (err) {
       setError('Login failed: ' + (err.response?.data?.message || 'Unknown error'));

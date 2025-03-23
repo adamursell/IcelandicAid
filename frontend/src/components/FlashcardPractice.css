@@ -1,0 +1,257 @@
+.flashcard-practice-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+.flashcard-practice-container h2 {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.progress-container {
+  width: 100%;
+  height: 10px;
+  background-color: #e0e0e0;
+  border-radius: 5px;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: #4CAF50;
+  border-radius: 5px;
+  transition: width 0.3s;
+}
+
+.progress-text {
+  text-align: center;
+  margin-top: 5px;
+  font-size: 14px;
+  color: #666;
+}
+
+.flashcard {
+  perspective: 1000px;
+  width: 100%;
+  height: 250px;
+  margin: 20px 0;
+  cursor: pointer;
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  border-radius: 10px;
+}
+
+.flashcard.flipped .flashcard-inner {
+  transform: rotateY(180deg);
+}
+
+.flashcard-front, .flashcard-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  border-radius: 10px;
+}
+
+.flashcard-front {
+  background-color: #f8f9fa;
+  color: #212529;
+}
+
+.flashcard-back {
+  background-color: #e9ecef;
+  color: #212529;
+  transform: rotateY(180deg);
+}
+
+.additional-info {
+  font-size: 0.9rem;
+  color: #6c757d;
+  margin-top: 20px;
+  font-style: italic;
+}
+
+.answer-form {
+  width: 100%;
+  margin: 20px 0;
+}
+
+.answer-form form {
+  display: flex;
+  gap: 10px;
+}
+
+.answer-form input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ced4da;
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+.answer-form button {
+  padding: 10px 15px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.answer-form button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.answer-feedback {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 5px;
+  font-weight: bold;
+}
+
+.answer-feedback.correct {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.answer-feedback.incorrect {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.control-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.control-buttons button {
+  padding: 10px 15px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.control-buttons button:hover {
+  background-color: #5a6268;
+}
+
+.control-buttons button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.pronounce-button {
+  background-color: #28a745 !important;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pronounce-button:hover {
+  background-color: #218838 !important;
+}
+
+.end-session-button {
+  display: block;
+  margin: 20px auto;
+  padding: 10px 20px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.end-session-button:hover {
+  background-color: #c82333;
+}
+
+.loading-message {
+  text-align: center;
+  margin: 50px 0;
+  font-size: 18px;
+  color: #666;
+}
+
+.card-count {
+  margin: 20px 0;
+  font-size: 16px;
+  color: #666;
+}
+
+.simple-flashcard {
+  width: 100%;
+  height: 200px;
+  margin: 20px 0;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.card-front, .card-back {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.simple-controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.simple-controls button {
+  padding: 10px 15px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.simple-controls button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.simple-end-button {
+  padding: 10px 20px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 20px;
+} 

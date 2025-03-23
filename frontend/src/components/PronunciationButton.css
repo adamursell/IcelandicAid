@@ -1,0 +1,36 @@
+.pronunciation-container {
+  margin: 10px 0;
+}
+
+.pronunciation-button {
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 15px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.3s;
+}
+
+.pronunciation-button:hover {
+  background-color: #3367d6;
+}
+
+.pronunciation-button.playing {
+  background-color: #34a853;
+}
+
+.pronunciation-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.pronunciation-error {
+  color: #d32f2f;
+  font-size: 12px;
+  margin-top: 5px;
+} 

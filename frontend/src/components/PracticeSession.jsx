@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import HomeButton from './HomeButton';
+import PronunciationButton from './PronunciationButton';
+import config from '../config';
 
 const PracticeSession = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const userId = localStorage.getItem('userId');
   const [flashcards, setFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -13,57 +16,99 @@ const PracticeSession = () => {
   const [isComplete, setIsComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sessionId, setSessionId] = useState(null);
+  const [sessionParams, setSessionParams] = useState(null);
   const inputRef = useRef(null);
 
+  // Extract parameters from either location.state or URL search params
   useEffect(() => {
-    const fetchFlashcards = async () => {
-      try {
-        setLoading(true);
-        const { topic, quantity, practiceMode } = location.state;
-        
-        // Start a new practice session
-        const sessionResponse = await fetch(`http://localhost:5000/users/${userId}/practice-sessions/start`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            practice_type: practiceMode === 'spaced' ? 'flashcard' : 'flashcard',
-            session_data: {
-              topic,
-              quantity,
-              practice_mode: practiceMode
-            }
-          }),
-        });
-        
-        if (sessionResponse.ok) {
-          const sessionData = await sessionResponse.json();
-          setSessionId(sessionData.session_id);
-        }
-        
-        // Different endpoints for different practice modes
-        const endpoint = practiceMode === 'spaced' 
-          ? `http://localhost:5000/users/${userId}/spaced-practice?topic=${topic}`
-          : `http://localhost:5000/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
-        
-        const response = await fetch(endpoint);
-        const data = await response.json();
-        
-        if (data.flashcards.length === 0) {
-          setIsComplete(true);
-        } else {
-          setFlashcards(data.flashcards);
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching flashcards:', error);
-        setLoading(false);
-      }
-    };
+    if (location.state) {
+      // Use state if available
+      setSessionParams(location.state);
+    } else {
+      // Otherwise extract from URL params
+      const topic = searchParams.get('topic') || 'all';
+      const mode = searchParams.get('mode') || 'spaced';
+      const quantity = parseInt(searchParams.get('quantity') || '10', 10);
+      
+      setSessionParams({
+        topic,
+        practiceMode: mode,
+        quantity
+      });
+    }
+  }, [location.state, searchParams]);
 
-    fetchFlashcards();
-  }, [userId, location.state]);
+  // Load flashcards when sessionParams is set
+  useEffect(() => {
+    if (sessionParams && userId) {
+      fetchFlashcards();
+    }
+  }, [sessionParams, userId]);
+
+  const fetchFlashcards = async () => {
+    if (!userId || !sessionParams) {
+      console.error('Missing required data:', { userId, sessionParams });
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const { topic, quantity, practiceMode } = sessionParams;
+      console.log('Starting practice session with:', { topic, quantity, practiceMode });
+      
+      // Start a new practice session
+      const sessionResponse = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          practice_type: practiceMode === 'spaced' ? 'flashcard' : 'flashcard',
+          session_data: {
+            topic,
+            quantity,
+            practice_mode: practiceMode
+          }
+        }),
+      });
+      
+      if (sessionResponse.ok) {
+        const sessionData = await sessionResponse.json();
+        console.log('Practice session started:', sessionData);
+        setSessionId(sessionData.session_id);
+      } else {
+        console.error('Failed to start practice session:', await sessionResponse.text());
+      }
+      
+      // Construct the API URL based on practice mode
+      const apiUrl = practiceMode === 'spaced'
+        ? `${config.API_URL}/users/${userId}/spaced-practice?topic=${topic}`
+        : `${config.API_URL}/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
+      
+      console.log('Fetching flashcards from:', apiUrl);
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        console.error('Failed to fetch flashcards:', await response.text());
+        setLoading(false);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Received flashcards:', data);
+      
+      if (data.flashcards.length === 0) {
+        setIsComplete(true);
+      } else {
+        setFlashcards(data.flashcards);
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching flashcards:', error);
+      setLoading(false);
+    }
+  };
 
   const handleGuessSubmit = (e) => {
     e.preventDefault();
@@ -72,16 +117,16 @@ const PracticeSession = () => {
 
   const handleKeepPracticing = async () => {
     // For simple practice mode
-    if (location.state.practiceMode === 'simple') {
+    if (sessionParams.practiceMode === 'simple') {
       try {
-        const response = await fetch(`http://localhost:5000/users/${userId}/practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             current_card_id: flashcards[currentIndex].id,
-            topic: location.state.topic
+            topic: sessionParams.topic
           }),
         });
         
@@ -103,7 +148,7 @@ const PracticeSession = () => {
       try {
         console.log(`Marking card ${flashcards[currentIndex].id} as incorrect`);
         
-        const response = await fetch(`http://localhost:5000/users/${userId}/spaced-practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -157,7 +202,7 @@ const PracticeSession = () => {
 
   const handleComplete = async () => {
     // For simple practice mode
-    if (location.state.practiceMode === 'simple') {
+    if (sessionParams.practiceMode === 'simple') {
       if (currentIndex === flashcards.length - 1) {
         setIsComplete(true);
       } else {
@@ -172,7 +217,7 @@ const PracticeSession = () => {
       try {
         console.log(`Marking card ${flashcards[currentIndex].id} as correct`);
         
-        const response = await fetch(`http://localhost:5000/users/${userId}/spaced-practice/next`, {
+        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -239,7 +284,7 @@ const PracticeSession = () => {
     if (!sessionId) return;
     
     try {
-      const response = await fetch(`http://localhost:5000/users/${userId}/practice-sessions/${sessionId}/complete`, {
+      const response = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/${sessionId}/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -252,6 +297,30 @@ const PracticeSession = () => {
       }
     } catch (error) {
       console.error('Error completing practice session:', error);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+      setShowBack(false);
+      setUserGuess('');
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleFlip = () => {
+    setShowBack(!showBack);
+  };
+
+  const handleNext = () => {
+    if (currentIndex < flashcards.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+      setShowBack(false);
+      setUserGuess('');
+      inputRef.current?.focus();
+    } else {
+      setIsComplete(true);
     }
   };
 
@@ -270,7 +339,7 @@ const PracticeSession = () => {
       <div className="practice-complete">
         <h2>Practice Session Complete!</h2>
         <p>
-          {location.state.practiceMode === 'spaced' 
+          {sessionParams?.practiceMode === 'spaced' 
             ? "You've completed all your due flashcards for today." 
             : "You've completed this practice session."}
         </p>
@@ -284,7 +353,7 @@ const PracticeSession = () => {
       <div className="practice-complete">
         <h2>No Flashcards Available</h2>
         <p>
-          {location.state.practiceMode === 'spaced' 
+          {sessionParams?.practiceMode === 'spaced' 
             ? "You don't have any flashcards due for practice today." 
             : "No flashcards are available for practice."}
         </p>
@@ -333,19 +402,27 @@ const PracticeSession = () => {
               <div className="correct-answer">
                 <h4>Correct Answer:</h4>
                 <p>{currentCard.back}</p>
+                
+                <div style={{ 
+                  margin: '10px 0', 
+                  display: 'flex', 
+                  justifyContent: 'center' 
+                }}>
+                  <PronunciationButton text={currentCard.back} />
+                </div>
               </div>
               <div className="button-group">
                 <button 
                   onClick={handleKeepPracticing}
                   className="keep-practicing-btn"
                 >
-                  {location.state.practiceMode === 'spaced' ? "Incorrect" : "Keep Practicing"}
+                  {sessionParams?.practiceMode === 'spaced' ? "Incorrect" : "Keep Practicing"}
                 </button>
                 <button 
                   onClick={handleComplete}
                   className="complete-btn"
                 >
-                  {location.state.practiceMode === 'spaced' ? "Correct" : "Complete"}
+                  {sessionParams?.practiceMode === 'spaced' ? "Correct" : "Complete"}
                 </button>
               </div>
             </div>

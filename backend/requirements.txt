@@ -4,7 +4,8 @@ pandas
 sqlalchemy
 anthropic
 python-dotenv
-psycopg2
+psycopg2-binary
 flask_cors
 werkzeug
-python-dotenv
+google-cloud-texttospeech==2.14.1
+requests

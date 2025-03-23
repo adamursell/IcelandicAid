@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HomeButton from './HomeButton';
 import LogoutButton from './LogoutButton';
+import config from '../config';
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Pie, Line, Bar } from 'react-chartjs-2';
 
@@ -26,7 +27,7 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
   const fetchProgressData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/users/${userId}/progress`);
+      const response = await fetch(`${config.API_URL}/users/${userId}/progress`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch progress data');

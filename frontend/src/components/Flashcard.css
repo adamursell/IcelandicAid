@@ -1,0 +1,77 @@
+.flashcard-container {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  perspective: 1000px;
+}
+
+.flashcard {
+  width: 100%;
+  height: 250px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.6s;
+  cursor: pointer;
+}
+
+.flashcard.flipped {
+  transform: rotateY(180deg);
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transform-style: preserve-3d;
+}
+
+.flashcard-front,
+.flashcard-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.flashcard-front {
+  background-color: #f8f9fa;
+  color: #212529;
+}
+
+.flashcard-back {
+  background-color: #e9ecef;
+  color: #212529;
+  transform: rotateY(180deg);
+}
+
+.additional-info {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-top: 10px;
+}
+
+/* Make sure the pronunciation button container is visible */
+.pronunciation-container {
+  margin: 10px 0;
+  z-index: 100;
+  position: relative;
+}
+
+/* Error card styling */
+.error-card {
+  width: 100%;
+  padding: 20px;
+  background-color: #f8d7da;
+  color: #721c24;
+  border-radius: 10px;
+  text-align: center;
+  margin: 20px 0;
+} 

@@ -9,6 +9,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
 import re
 from datetime import datetime, timedelta
+import requests
+import urllib.parse
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -17,10 +19,47 @@ logger = logging.getLogger(__name__)
 # ---------------------------
 # Load Environment Variables
 # ---------------------------
-load_dotenv("C:/Users/User/PycharmProjects/IcelandicLearningAid/APIKey.env")
-API_KEY = os.getenv("APIKey")
+# Load environment variables
+load_dotenv()  # This will load from .env file in the current directory if it exists
+API_KEY = os.getenv("APIKey") or os.getenv("ANTHROPIC_API_KEY")
 if not API_KEY:
-    raise ValueError("Please set the ANTHROPIC_API_KEY environment variable in APIKey.env")
+    logger.warning("API key not found in environment variables. Some features may not work.")
+
+# Try to load from the API key env file - use a relative path or environment variable
+api_key_path = os.getenv("API_KEY_PATH") or os.path.join(os.path.dirname(__file__), "APIKey.env")
+if os.path.exists(api_key_path):
+    logger.info(f"Loading API keys from: {api_key_path}")
+    load_dotenv(api_key_path)
+    # Check if we got the keys after loading
+    API_KEY = API_KEY or os.getenv("ANTHROPIC_API_KEY")
+    
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if GOOGLE_API_KEY:
+    logger.info("GOOGLE_API_KEY is set")
+    # Print a masked version of the key for debugging
+    masked_key = GOOGLE_API_KEY[:4] + "*" * (len(GOOGLE_API_KEY) - 8) + GOOGLE_API_KEY[-4:] if len(GOOGLE_API_KEY) > 8 else "****"
+    logger.info(f"Google API Key (masked): {masked_key}")
+else:
+    logger.warning("GOOGLE_API_KEY not set. Text-to-speech functionality will not work.")
+
+
+# Database configuration
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME")
+DATABASE_URL = os.getenv("DATABASE_URL")  # For Render PostgreSQL
+
+# Remove the hardcoded paths for security and portability
+# Try to load PostgreSQL environment variables from postgres.env in a secure location
+postgres_env_path = os.getenv("POSTGRES_ENV_PATH")
+if postgres_env_path and os.path.exists(postgres_env_path):
+    load_dotenv(postgres_env_path)
+    logger.info(f"Loaded PostgreSQL environment variables from {postgres_env_path}")
+else:
+    logger.warning(f"PostgreSQL environment file not found at {postgres_env_path}")
+
 
 # ---------------------------
 # SQLAlchemy Setup & Database Models
@@ -30,10 +69,47 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
 
 # Database configuration
-DATABASE_URL = "sqlite:///AppDatabase.db"
-engine = create_engine(DATABASE_URL, echo=False)  # Add echo=True for debugging
-Session = sessionmaker(bind=engine)
-session = Session()
+# Check if DATABASE_URL is provided (common in cloud environments like Render)
+if DATABASE_URL:
+    # Use the DATABASE_URL provided by Render
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+        pool_recycle=1800,
+        connect_args={
+            "sslmode": "require"  # Required for Render.com PostgreSQL
+        }
+    )
+    logger.info("Using PostgreSQL database from DATABASE_URL")
+# Check if PostgreSQL environment variables are set, otherwise fall back to SQLite
+elif all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+    # URL encode the password to handle special characters
+    encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
+    db_url = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    
+    # PostgreSQL-specific engine configuration
+    engine = create_engine(
+        db_url,
+        echo=False,  # Set to True for debugging
+        pool_size=5,  # Maximum number of connections to keep open
+        max_overflow=10,  # Maximum number of connections to create above pool_size
+        pool_timeout=30,  # Timeout for getting a connection from the pool
+        pool_recycle=1800,  # Recycle connections after 30 minutes
+        connect_args={
+            "sslmode": "require"  # Required for Render.com PostgreSQL
+        }
+    )
+    logger.info("Using PostgreSQL database from environment variables")
+else:
+    db_url = "sqlite:///AppDatabase.db"
+    logger.warning("PostgreSQL environment variables not set, falling back to SQLite")
+    engine = create_engine(db_url, echo=False)
+
+# Create a scoped session factory instead of a global session
+Session = scoped_session(sessionmaker(bind=engine))
 
 # Create the tables in the database (if they don't already exist)
 Base.metadata.create_all(engine)
@@ -167,6 +243,12 @@ class FlashcardGenerator:
 app = Flask(__name__)
 CORS(app)  # This enables CORS for all routes
 
+# Set up request hooks to manage sessions
+@app.teardown_appcontext
+def cleanup(exception=None):
+    """Remove the database session at the end of the request."""
+    Session.remove()
+
 # Add this before the Flask app setup
 FLASHCARD_PROMPT = """You are an expert Icelandic language teacher. Your task is to create flashcards for learning Icelandic, tailored to the user's profile and needs.
 
@@ -285,6 +367,14 @@ Output only valid JSON with no additional text or explanations. Every flashcard 
 def health_check():
     return jsonify({"message": "API is running!"}), 200
 
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({"message": "Kenni API - Welcome! Use /health to check API status."}), 200
+
+@app.route('/favicon.ico')
+def favicon():
+    return "", 204  # No content response
+
 ################# Login and registering endpoints
 @app.route('/register', methods=['POST'])
 def register():
@@ -305,7 +395,7 @@ def register():
 
     try:
         # Check if email already exists
-        if session.query(User).filter_by(email=email).first():
+        if Session.query(User).filter_by(email=email).first():
             return jsonify({'message': 'Email is already registered'}), 409
 
         new_user = User(
@@ -317,15 +407,15 @@ def register():
             skill_level=skill_level,
             additional_info=additional_info
         )
-        session.add(new_user)
-        session.commit()
+        Session.add(new_user)
+        Session.commit()
         return jsonify({'message': 'User created successfully'}), 201
 
     except Exception as e:
-        session.rollback()
+        Session.rollback()
         return jsonify({'message': f'Database error: {str(e)}'}), 500
     finally:
-        session.close()
+        Session.close()
 
 # Route for user login
 @app.route('/login', methods=['POST'])
@@ -338,26 +428,32 @@ def login():
     if not email or not password:
         return jsonify({'message': 'Email and password are required to login'}), 400
 
-    user = session.query(User).filter_by(email=email).first()
-    session.close()
+    try:
+        user = Session.query(User).filter_by(email=email).first()
+        
+        if not user:
+            return jsonify({'message': 'Invalid email or password'}), 401  # 401 Unauthorized
 
-    if not user:
-        return jsonify({'message': 'Invalid email or password'}), 401  # 401 Unauthorized
-
-    # Check the password against the stored hash
-    if check_password_hash(user.password_hash, password):
-        # Fetch user ID and return it in the response
-        user_id = user.id
-        return jsonify({'message': 'Login successful', 'user_id': user_id}), 200
-    else:
-        return jsonify({'message': 'Invalid email or password'}), 401
+        # Check the password against the stored hash
+        if check_password_hash(user.password_hash, password):
+            # Fetch user ID and return it in the response
+            user_id = user.id
+            return jsonify({'message': 'Login successful', 'user_id': user_id}), 200
+        else:
+            return jsonify({'message': 'Invalid email or password'}), 401
+    except Exception as e:
+        # Log the error for debugging
+        logger.error(f"Login error: {str(e)}")
+        # Ensure transaction is rolled back on error
+        Session.rollback()
+        return jsonify({'message': f'Login error: {str(e)}'}), 500
 
 # Add this new endpoint after the login/register endpoints
 @app.route('/users/<int:user_id>', methods=['GET', 'PUT'])
 def manage_user(user_id):
     """Get or update user information."""
     try:
-        user = session.query(User).get(user_id)
+        user = Session.query(User).get(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
 
@@ -387,11 +483,11 @@ def manage_user(user_id):
             user.additional_info = data.get('additional_info', user.additional_info)
             user.gender = data.get('gender', user.gender)
 
-            session.commit()
+            Session.commit()
             return jsonify({"message": "User information updated successfully"}), 200
 
     except Exception as e:
-        session.rollback()
+        Session.rollback()
         return jsonify({"error": str(e)}), 500
 
 ################# flashcard generator view endpoints
@@ -412,7 +508,7 @@ def generate_flashcards():
             return jsonify({"error": "Missing required fields: user_id and topic"}), 400
 
         # Get user profile from database
-        user = session.get(User, user_id)
+        user = Session.get(User, user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
 
@@ -544,7 +640,7 @@ def get_user_flashcards(user_id):
         logger.info(f"Fetching flashcards for user: {user_id}")
         
         # Join Flashcard with FlashcardLibrary to get user's flashcards
-        flashcards = (session.query(Flashcard)
+        flashcards = (Session.query(Flashcard)
                      .join(FlashcardLibrary)
                      .filter(FlashcardLibrary.user_id == user_id)
                      .all())
@@ -556,7 +652,7 @@ def get_user_flashcards(user_id):
             "front": fc.front_text,
             "back": fc.back_text,
             "additional_info": fc.additional_info or "",
-            "topic": session.query(FlashcardLibrary).get(fc.library_id).library_name
+            "topic": Session.query(FlashcardLibrary).get(fc.library_id).library_name
         } for fc in flashcards]
 
         return jsonify({"flashcards": results}), 200
@@ -572,17 +668,17 @@ def delete_flashcard(flashcard_id):
     Delete a specific flashcard from the database.
     """
     try:
-        flashcard = session.query(Flashcard).get(flashcard_id)
+        flashcard = Session.query(Flashcard).get(flashcard_id)
         if not flashcard:
             return jsonify({"error": "Flashcard not found"}), 404
             
-        session.delete(flashcard)
-        session.commit()
+        Session.delete(flashcard)
+        Session.commit()
         return jsonify({"message": "Flashcard deleted successfully."}), 200
         
     except Exception as e:
         logger.error(f"Error deleting flashcard: {e}")
-        session.rollback()
+        Session.rollback()
         return jsonify({"error": f"Failed to delete flashcard: {str(e)}"}), 500
 
 # Api endpoint to edit a flashcard
@@ -599,12 +695,12 @@ def update_flashcard(flashcard_id):
 
     try:
         # Get the flashcard from the database
-        flashcard = session.query(Flashcard).get(flashcard_id)
+        flashcard = Session.query(Flashcard).get(flashcard_id)
         if not flashcard:
             return jsonify({"error": "Flashcard not found"}), 404
 
         # Get the current library to check if topic has changed
-        current_library = session.query(FlashcardLibrary).get(flashcard.library_id)
+        current_library = Session.query(FlashcardLibrary).get(flashcard.library_id)
         
         # If topic is provided and has changed, update the library
         if topic is not None and topic != current_library.library_name:
@@ -612,7 +708,7 @@ def update_flashcard(flashcard_id):
             user_id = flashcard.user_id
             
             # Find or create a library with the new topic name
-            new_library = session.query(FlashcardLibrary).filter_by(
+            new_library = Session.query(FlashcardLibrary).filter_by(
                 user_id=user_id, 
                 library_name=topic
             ).first()
@@ -623,8 +719,8 @@ def update_flashcard(flashcard_id):
                     user_id=user_id,
                     library_name=topic
                 )
-                session.add(new_library)
-                session.flush()  # Get the ID without committing
+                Session.add(new_library)
+                Session.flush()  # Get the ID without committing
             
             # Update the flashcard's library_id
             flashcard.library_id = new_library.id
@@ -638,10 +734,10 @@ def update_flashcard(flashcard_id):
             flashcard.additional_info = additional_info
 
         # Commit the changes
-        session.commit()
+        Session.commit()
 
         # Get the updated library name
-        updated_library = session.query(FlashcardLibrary).get(flashcard.library_id)
+        updated_library = Session.query(FlashcardLibrary).get(flashcard.library_id)
 
         return jsonify({
             "message": "Flashcard updated successfully",
@@ -656,7 +752,7 @@ def update_flashcard(flashcard_id):
 
     except Exception as e:
         logger.error(f"Error updating flashcard: {str(e)}")
-        session.rollback()
+        Session.rollback()
         return jsonify({"error": str(e)}), 500
 
 ################# Flashcard practice API endpoints
@@ -666,7 +762,7 @@ def get_user_topics(user_id):
     """Get all available flashcard topics for a user."""
     try:
         # Query distinct topics from user's libraries that have flashcards
-        topics = (session.query(FlashcardLibrary.library_name)
+        topics = (Session.query(FlashcardLibrary.library_name)
                  .filter(FlashcardLibrary.user_id == user_id)
                  .join(Flashcard)  # Join with Flashcard table
                  .group_by(FlashcardLibrary.library_name)
@@ -692,7 +788,7 @@ def get_practice_flashcards(user_id):
         topic = request.args.get('topic', default=None, type=str)
         
         # Base query joining Flashcard with FlashcardLibrary
-        query = (session.query(Flashcard)
+        query = (Session.query(Flashcard)
                 .join(FlashcardLibrary)
                 .filter(FlashcardLibrary.user_id == user_id))
         
@@ -724,7 +820,7 @@ def get_practice_flashcards(user_id):
             "front": fc.front_text,
             "back": fc.back_text,
             "additional_info": fc.additional_info,
-            "topic": session.query(FlashcardLibrary).get(fc.library_id).library_name
+            "topic": Session.query(FlashcardLibrary).get(fc.library_id).library_name
         } for fc in flashcards]
 
         return jsonify({
@@ -742,7 +838,7 @@ def get_spaced_practice_flashcards(user_id):
         topic = request.args.get('topic', default=None, type=str)
         
         # Base query joining Flashcard with FlashcardLibrary
-        query = (session.query(Flashcard)
+        query = (Session.query(Flashcard)
                 .join(FlashcardLibrary)
                 .filter(FlashcardLibrary.user_id == user_id)
                 .filter(Flashcard.next_practice_time <= func.now()))  # Only cards due for practice
@@ -771,7 +867,7 @@ def get_spaced_practice_flashcards(user_id):
             "front": fc.front_text,
             "back": fc.back_text,
             "additional_info": fc.additional_info,
-            "topic": session.query(FlashcardLibrary).get(fc.library_id).library_name,
+            "topic": Session.query(FlashcardLibrary).get(fc.library_id).library_name,
             "next_repetition_space": fc.next_repetition_space
         } for fc in flashcards]
 
@@ -795,19 +891,19 @@ def get_next_practice_card(user_id):
         # If we have a current card ID, return that specific card
         # since the user marked it for more practice
         if current_card_id:
-            current_card = session.query(Flashcard).get(current_card_id)
+            current_card = Session.query(Flashcard).get(current_card_id)
             if current_card:
                 result = {
                     "id": current_card.id,
                     "front": current_card.front_text,
                     "back": current_card.back_text,
                     "additional_info": current_card.additional_info,
-                    "topic": session.query(FlashcardLibrary).get(current_card.library_id).library_name
+                    "topic": Session.query(FlashcardLibrary).get(current_card.library_id).library_name
                 }
                 return jsonify(result), 200
         
         # Base query for getting a random card if no current card or it wasn't found
-        query = (session.query(Flashcard)
+        query = (Session.query(Flashcard)
                 .join(FlashcardLibrary)
                 .filter(FlashcardLibrary.user_id == user_id))
         
@@ -825,7 +921,7 @@ def get_next_practice_card(user_id):
             "front": next_card.front_text,
             "back": next_card.back_text,
             "additional_info": next_card.additional_info,
-            "topic": session.query(FlashcardLibrary).get(next_card.library_id).library_name
+            "topic": Session.query(FlashcardLibrary).get(next_card.library_id).library_name
         }
         
         return jsonify(result), 200
@@ -846,7 +942,7 @@ def get_next_spaced_practice_card(user_id):
         
         # Update the current card's spaced repetition parameters if provided
         if current_card_id:
-            current_card = session.query(Flashcard).filter(Flashcard.id == current_card_id).first()
+            current_card = Session.query(Flashcard).filter(Flashcard.id == current_card_id).first()
             
             if current_card:
                 if is_correct:
@@ -863,14 +959,14 @@ def get_next_spaced_practice_card(user_id):
                     logger.info(f"Card {current_card_id} marked incorrect: repetition space updated from {old_space} to {current_card.next_repetition_space} days")
                     # For incorrect answers, we don't update next_practice_time
                 
-                session.commit()
+                Session.commit()
                 logger.info(f"Database updated for card {current_card_id}")
         
         # For incorrect answers, we want to return the next card in the queue
         # and let the frontend handle putting the current card at the end
         if not is_correct and current_card_id:
             # Get the next due card that's not the current card
-            next_card = (session.query(Flashcard)
+            next_card = (Session.query(Flashcard)
                         .join(FlashcardLibrary)
                         .filter(FlashcardLibrary.user_id == user_id)
                         .filter(Flashcard.next_practice_time <= func.now())
@@ -883,7 +979,7 @@ def get_next_spaced_practice_card(user_id):
                 next_card = current_card
         else:
             # For correct answers, get the next due card
-            next_card = (session.query(Flashcard)
+            next_card = (Session.query(Flashcard)
                         .join(FlashcardLibrary)
                         .filter(FlashcardLibrary.user_id == user_id)
                         .filter(Flashcard.next_practice_time <= func.now())
@@ -899,7 +995,7 @@ def get_next_spaced_practice_card(user_id):
             "front": next_card.front_text,
             "back": next_card.back_text,
             "additional_info": next_card.additional_info,
-            "topic": session.query(FlashcardLibrary).get(next_card.library_id).library_name,
+            "topic": Session.query(FlashcardLibrary).get(next_card.library_id).library_name,
             "next_repetition_space": next_card.next_repetition_space
         }
         
@@ -972,7 +1068,7 @@ def start_conversation():
 
     try:
         # Get user profile from database
-        user = session.query(User).get(user_id)
+        user = Session.query(User).get(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
             
@@ -981,8 +1077,8 @@ def start_conversation():
             user_id=user_id,
             scenario=scenario
         )
-        session.add(new_conversation)
-        session.commit()
+        Session.add(new_conversation)
+        Session.commit()
 
         # Create personalized system prompt using user profile
         personalized_prompt = CONVERSATION_SYSTEM_PROMPT.format(
@@ -1018,7 +1114,7 @@ def start_conversation():
                 role="assistant",
                 content=icelandic_text
             )
-            session.add(new_message)
+            Session.add(new_message)
             
             return jsonify({
                 "message": icelandic_text,
@@ -1034,8 +1130,8 @@ def start_conversation():
                 role="assistant",
                 content=content
             )
-            session.add(new_message)
-            session.commit()
+            Session.add(new_message)
+            Session.commit()
             
             return jsonify({
                 "message": content,
@@ -1056,7 +1152,7 @@ def chat():
     
     try:
         # Get the conversation
-        conversation = session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
+        conversation = Session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
         if not conversation:
             return jsonify({"error": "Conversation not found"}), 404
             
@@ -1070,11 +1166,11 @@ def chat():
             role="user",
             content=message
         )
-        session.add(user_message)
-        session.commit()
+        Session.add(user_message)
+        Session.commit()
         
         # Get all messages in this conversation
-        messages = session.query(ConversationMessage).filter_by(conversation_id=conversation_id).order_by(ConversationMessage.created_at).all()
+        messages = Session.query(ConversationMessage).filter_by(conversation_id=conversation_id).order_by(ConversationMessage.created_at).all()
         
         # Format the conversation history for the prompt
         conversation_history = ""
@@ -1085,7 +1181,7 @@ def chat():
                 conversation_history += f"Assistant: {msg.content}\n\n"
         
         # Get user information
-        user = session.query(User).filter_by(id=user_id).first()
+        user = Session.query(User).filter_by(id=user_id).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
             
@@ -1139,7 +1235,7 @@ def chat():
                     role="assistant",
                     content=icelandic_text
                 )
-                session.add(assistant_message)
+                Session.add(assistant_message)
                 
                 # Add feedback for the user's message
                 feedback_json = {
@@ -1148,13 +1244,13 @@ def chat():
                     "overall_feedback": overall_feedback
                 }
                 user_message.feedback = json.dumps(feedback_json)
-                session.commit()
+                Session.commit()
                 
                 # If the conversation is marked as complete by the LLM, mark it as completed
                 if conversation_complete:
                     # Mark the conversation as completed
                     conversation.completed_at = func.now()
-                    session.commit()
+                    Session.commit()
                     
                     # Generate feedback for the completed conversation
                     try:
@@ -1204,8 +1300,8 @@ def chat():
                     role="assistant",
                     content=response_text
                 )
-                session.add(assistant_message)
-                session.commit()
+                Session.add(assistant_message)
+                Session.commit()
                 
                 return jsonify({
                     "response": {
@@ -1228,8 +1324,8 @@ def chat():
                 role="assistant",
                 content=response_text
             )
-            session.add(assistant_message)
-            session.commit()
+            Session.add(assistant_message)
+            Session.commit()
             
             return jsonify({
                 "response": {
@@ -1257,7 +1353,7 @@ def end_conversation():
     
     try:
         # Get the conversation
-        conversation = session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
+        conversation = Session.query(Conversation).filter_by(id=conversation_id, user_id=user_id).first()
         if not conversation:
             logger.error(f"Conversation not found: user_id={user_id}, conversation_id={conversation_id}")
             return jsonify({"error": "Conversation not found"}), 404
@@ -1267,7 +1363,7 @@ def end_conversation():
             logger.info(f"Conversation {conversation_id} is already marked as completed")
             
             # Check if feedback already exists in the new table
-            existing_feedback = session.query(ConversationFeedback).filter_by(
+            existing_feedback = Session.query(ConversationFeedback).filter_by(
                 conversation_id=conversation_id
             ).first()
             
@@ -1282,11 +1378,11 @@ def end_conversation():
         # Mark the conversation as completed if not already
         if not conversation.completed_at:
             conversation.completed_at = func.now()
-            session.commit()
+            Session.commit()
             logger.info(f"Marked conversation {conversation_id} as completed")
         
         # Get all user messages with feedback in this conversation
-        user_messages = session.query(ConversationMessage).filter_by(
+        user_messages = Session.query(ConversationMessage).filter_by(
             conversation_id=conversation_id,
             role="user"
         ).order_by(ConversationMessage.created_at).all()
@@ -1314,7 +1410,7 @@ def end_conversation():
             }), 200
         
         # Get user information for personalization
-        user = session.query(User).filter_by(id=user_id).first()
+        user = Session.query(User).filter_by(id=user_id).first()
         if not user:
             logger.error(f"User not found: user_id={user_id}")
             return jsonify({"error": "User not found"}), 404
@@ -1430,8 +1526,8 @@ The JSON must be valid with no extra text before or after. Do not include explan
                         overall_score=feedback_data["overall_score"]
                     )
                     
-                    session.add(new_feedback)
-                    session.commit()
+                    Session.add(new_feedback)
+                    Session.commit()
                     logger.info(f"Saved feedback summary for conversation {conversation_id}")
                     
                     return jsonify({
@@ -1470,12 +1566,12 @@ The JSON must be valid with no extra text before or after. Do not include explan
 def get_user_learning_profile(user_id):
     try:
         # Get the user
-        user = session.query(User).get(user_id)
+        user = Session.query(User).get(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
             
         # Get all completed conversations for this user
-        conversations = session.query(Conversation).filter(
+        conversations = Session.query(Conversation).filter(
             Conversation.user_id == user_id, 
             Conversation.completed_at != None
         ).order_by(Conversation.completed_at.desc()).all()
@@ -1496,7 +1592,7 @@ def get_user_learning_profile(user_id):
         # Add conversation feedback
         for conversation in conversations:
             # First check for feedback in the new table
-            feedback = session.query(ConversationFeedback).filter_by(
+            feedback = Session.query(ConversationFeedback).filter_by(
                 conversation_id=conversation.id
             ).first()
             
@@ -1532,13 +1628,13 @@ def get_user_learning_profile(user_id):
 def get_conversation_feedback(conversation_id):
     try:
         # Get the conversation
-        conversation = session.query(Conversation).filter_by(id=conversation_id).first()
+        conversation = Session.query(Conversation).filter_by(id=conversation_id).first()
         if not conversation:
             logger.error(f"Conversation not found: {conversation_id}")
             return jsonify({"error": "Conversation not found"}), 404
             
         # Check if feedback exists in the new table
-        feedback = session.query(ConversationFeedback).filter_by(conversation_id=conversation_id).first()
+        feedback = Session.query(ConversationFeedback).filter_by(conversation_id=conversation_id).first()
         
         if feedback:
             try:
@@ -1603,7 +1699,7 @@ def get_conversation_feedback(conversation_id):
 def get_user_progress(user_id):
     try:
         # Get the user
-        user = session.query(User).get(user_id)
+        user = Session.query(User).get(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
             
@@ -1650,7 +1746,7 @@ def get_user_progress(user_id):
         }
         
         # Get conversation data
-        conversations = session.query(Conversation).filter(
+        conversations = Session.query(Conversation).filter(
             Conversation.user_id == user_id, 
             Conversation.completed_at != None
         ).order_by(Conversation.completed_at.desc()).all()
@@ -1666,7 +1762,7 @@ def get_user_progress(user_id):
         
         for conversation in conversations:
             # Check for feedback in the new table
-            feedback = session.query(ConversationFeedback).filter_by(
+            feedback = Session.query(ConversationFeedback).filter_by(
                 conversation_id=conversation.id
             ).first()
             
@@ -1740,14 +1836,14 @@ def get_user_progress(user_id):
         
         # Get flashcard data
         # Count total flashcards
-        total_flashcards = session.query(func.count(Flashcard.id)).filter(
+        total_flashcards = Session.query(func.count(Flashcard.id)).filter(
             Flashcard.user_id == user_id
         ).scalar()
         
         progress_data["flashcards"]["total_flashcards"] = total_flashcards
         
         # Count total topics
-        total_topics = session.query(func.count(distinct(FlashcardGeneration.flashcard_topic))).filter(
+        total_topics = Session.query(func.count(distinct(FlashcardGeneration.flashcard_topic))).filter(
             FlashcardGeneration.user_id == user_id
         ).scalar()
         
@@ -1758,7 +1854,7 @@ def get_user_progress(user_id):
         progress_data["flashcards"]["total_topics"] = total_topics
         
         # Get word types distribution
-        flashcards = session.query(Flashcard).filter(
+        flashcards = Session.query(Flashcard).filter(
             Flashcard.user_id == user_id
         ).all()
         
@@ -1846,7 +1942,7 @@ def get_user_progress(user_id):
                 progress_data["flashcards"]["knowledge_levels"]["mastered"] += 1
         
         # Get practice streak data
-        streaks = session.query(PracticeStreak).filter(
+        streaks = Session.query(PracticeStreak).filter(
             PracticeStreak.user_id == user_id
         ).all()
         
@@ -1859,7 +1955,7 @@ def get_user_progress(user_id):
                 progress_data["conversation"]["streak"]["longest"] = streak.longest_streak
         
         # Get due flashcards count
-        due_flashcards = session.query(func.count(Flashcard.id)).filter(
+        due_flashcards = Session.query(func.count(Flashcard.id)).filter(
             Flashcard.user_id == user_id,
             Flashcard.next_practice_time <= func.now()
         ).scalar()
@@ -1891,8 +1987,8 @@ def start_practice_session(user_id):
             session_data=json.dumps(data.get('session_data', {}))
         )
         
-        session.add(new_session)
-        session.commit()
+        Session.add(new_session)
+        Session.commit()
         
         return jsonify({
             "message": "Practice session started",
@@ -1909,7 +2005,7 @@ def complete_practice_session(user_id, session_id):
     """Complete a practice session and update the user's streak."""
     try:
         # Get the practice session
-        practice_session = session.query(PracticeSession).filter(
+        practice_session = Session.query(PracticeSession).filter(
             PracticeSession.id == session_id,
             PracticeSession.user_id == user_id
         ).first()
@@ -1924,7 +2020,7 @@ def complete_practice_session(user_id, session_id):
         practice_session.completed_at = datetime.now()
         
         # Get or create the practice streak record
-        practice_streak = session.query(PracticeStreak).filter(
+        practice_streak = Session.query(PracticeStreak).filter(
             PracticeStreak.user_id == user_id,
             PracticeStreak.practice_type == practice_session.practice_type
         ).first()
@@ -1938,7 +2034,7 @@ def complete_practice_session(user_id, session_id):
                 longest_streak=1,
                 last_practice_date=datetime.now()
             )
-            session.add(practice_streak)
+            Session.add(practice_streak)
         else:
             # Check if the streak should be updated
             today = datetime.now().date()
@@ -1965,7 +2061,7 @@ def complete_practice_session(user_id, session_id):
             # Update last practice date
             practice_streak.last_practice_date = datetime.now()
         
-        session.commit()
+        Session.commit()
         
         return jsonify({
             "message": "Practice session completed",
@@ -1983,7 +2079,7 @@ def get_practice_streaks(user_id):
     """Get the user's practice streaks for both flashcard and conversation practice."""
     try:
         # Get the user's practice streaks
-        streaks = session.query(PracticeStreak).filter(
+        streaks = Session.query(PracticeStreak).filter(
             PracticeStreak.user_id == user_id
         ).all()
         
@@ -2021,9 +2117,101 @@ def get_practice_streaks(user_id):
         logger.error(f"Error getting practice streaks: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/text-to-speech', methods=['POST'])
+def text_to_speech():
+    """Generate audio for Icelandic text using Google Cloud TTS"""
+    try:
+        data = request.get_json()
+        text = data.get('text')
+        
+        logger.info(f"Text-to-speech request received for text: {text}")
+        
+        if not text:
+            logger.warning("Text-to-speech: No text provided")
+            return jsonify({"error": "No text provided"}), 400
+            
+        if not GOOGLE_API_KEY:
+            logger.error("Text-to-speech: Google API key not configured")
+            return jsonify({"error": "Google API key not configured"}), 500
+        
+        # Create request to the Google Text-to-Speech API
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_API_KEY}"
+        
+        logger.info(f"Making request to Google TTS API for text: {text}")
+        
+        payload = {
+            "input": {"text": text},
+            "voice": {"languageCode": "is-IS", "ssmlGender": "NEUTRAL"},
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 0.9}
+        }
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code != 200:
+            logger.error(f"Google API error: Status {response.status_code}, Response: {response.text}")
+            return jsonify({"error": f"Failed to generate speech. Google API returned status {response.status_code}"}), 500
+        
+        # The response contains audioContent as base64
+        try:
+            audio_content = response.json().get("audioContent")
+            if not audio_content:
+                logger.error("Google API returned no audio content")
+                return jsonify({"error": "No audio content received from Google API"}), 500
+                
+            logger.info("Successfully generated audio from text")
+            return jsonify({
+                "audio": audio_content,
+                "text": text
+            }), 200
+            
+        except Exception as json_err:
+            logger.error(f"Error extracting JSON from Google API response: {str(json_err)}")
+            return jsonify({"error": "Failed to parse Google API response"}), 500
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in text-to-speech: {str(e)}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+@app.route('/api/test-google-tts', methods=['GET'])
+def test_google_tts():
+    """Test the Google Text-to-Speech API connection"""
+    try:
+        if not GOOGLE_API_KEY:
+            return jsonify({
+                "status": "error",
+                "message": "GOOGLE_API_KEY is not set",
+                "api_key_found": False
+            }), 400
+        
+        # Try a simple test request to validate the API key
+        url = f"https://texttospeech.googleapis.com/v1/voices?key={GOOGLE_API_KEY}"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            return jsonify({
+                "status": "success",
+                "message": "Google TTS API connection successful",
+                "api_key_found": True,
+                "api_response_status": response.status_code
+            }), 200
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"Google TTS API returned error: {response.status_code}",
+                "api_key_found": True,
+                "api_response_status": response.status_code,
+                "response_text": response.text[:200] + ("..." if len(response.text) > 200 else "")
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Exception when testing Google TTS API: {str(e)}",
+            "api_key_found": GOOGLE_API_KEY is not None
+        }), 500
+
 # ---------------------------
 # Main Entry Point
 # ---------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-    # app.run(debug=True)
+    app.run(host='0.0.0.0')  # Use default port 5000

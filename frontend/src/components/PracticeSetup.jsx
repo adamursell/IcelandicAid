@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Select from 'react-select';
 import HomeButton from './HomeButton';
+import config from '../config';
 
 const PracticeSetup = () => {
   const [topics, setTopics] = useState([]);
@@ -17,7 +18,10 @@ const PracticeSetup = () => {
     // Fetch available topics when component mounts
     const fetchTopics = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/users/${userId}/topics`);
+        const response = await fetch(`${config.API_URL}/users/${userId}/topics`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch topics');
+        }
         const data = await response.json();
         // Sort topics alphabetically and create options array
         const sortedTopics = data.topics.sort((a, b) => a.localeCompare(b));
@@ -43,14 +47,14 @@ const PracticeSetup = () => {
       try {
         // Fetch regular practice cards
         const regularResponse = await fetch(
-          `http://localhost:5000/users/${userId}/practice?topic=${selectedTopic.value}&num_flashcards=1`
+          `${config.API_URL}/users/${userId}/practice?topic=${selectedTopic.value}&num_flashcards=1`
         );
         const regularData = await regularResponse.json();
         setMaxAvailable(regularData.total_available);
         
         // Fetch spaced repetition cards
         const spacedResponse = await fetch(
-          `http://localhost:5000/users/${userId}/spaced-practice?topic=${selectedTopic.value}`
+          `${config.API_URL}/users/${userId}/spaced-practice?topic=${selectedTopic.value}`
         );
         const spacedData = await spacedResponse.json();
         setSpacedAvailable(spacedData.total_available);
@@ -68,7 +72,8 @@ const PracticeSetup = () => {
   }, [selectedTopic, userId, practiceMode]);
 
   const handleStartPractice = () => {
-    navigate('/practice-session', {
+    // Include critical parameters in the URL for persistence on refresh
+    navigate(`/practice-session?topic=${encodeURIComponent(selectedTopic.value)}&mode=${practiceMode}&quantity=${quantity}`, {
       state: {
         topic: selectedTopic.value,
         quantity: quantity,
