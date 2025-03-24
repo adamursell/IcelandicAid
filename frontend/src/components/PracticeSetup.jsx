@@ -79,7 +79,7 @@ const PracticeSetup = () => {
     };
 
     fetchAvailableCards();
-  }, [selectedTopic, userId, practiceMode]);
+  }, [selectedTopic, userId, practiceMode, quantity]);
 
   const handleStartPractice = () => {
     try {
@@ -168,4 +168,68 @@ const PracticeSetup = () => {
       <h2>Practice Setup</h2>
       
       <div className="practice-mode-selector">
-        <div className={`mode-option ${practiceMode === 'spaced' ? 'active' : ''}`
+        <div 
+          className={`mode-option ${practiceMode === 'spaced' ? 'active' : ''}`} 
+          onClick={() => setPracticeMode('spaced')}
+        >
+          Spaced repetition practice
+        </div>
+        <div 
+          className={`mode-option ${practiceMode === 'simple' ? 'active' : ''}`}
+          onClick={() => setPracticeMode('simple')}
+        >
+          Simple practice
+        </div>
+      </div>
+      
+      <div className="setup-form">
+        {practiceMode === 'simple' ? (
+          <>
+            <div className="form-group">
+              <label htmlFor="topic">Select Topic:</label>
+              <Select
+                id="topic"
+                value={selectedTopic}
+                onChange={setSelectedTopic}
+                options={topics}
+                styles={customStyles}
+                isSearchable={true}
+                placeholder="Search for a topic..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="quantity">Number of Flashcards:</label>
+              <input
+                type="number"
+                id="quantity"
+                min="1"
+                max={maxAvailable}
+                value={quantity}
+                onChange={(e) => setQuantity(Math.min(parseInt(e.target.value), maxAvailable))}
+              />
+              <span className="available-cards">
+                (Maximum available: {maxAvailable})
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="spaced-info">
+            <p>Flashcards to practice today: {spacedAvailable}</p>
+          </div>
+        )}
+
+        <button 
+          onClick={handleStartPractice}
+          disabled={(practiceMode === 'simple' && maxAvailable === 0) || 
+                   (practiceMode === 'spaced' && spacedAvailable === 0)}
+          className="begin-practice-btn"
+        >
+          Begin practice
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default PracticeSetup;
