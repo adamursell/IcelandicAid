@@ -1,0 +1,26 @@
+# render.yaml
+services:
+  - type: web
+    name: kenni-frontend
+    env: static
+    buildCommand: npm install && CI=false npm run build
+    staticPublishPath: ./build
+    buildFilter:
+      paths:
+        - src/**/*.js
+        - src/**/*.jsx
+        - src/**/*.css
+        - public/**/*
+        - package.json
+        - package-lock.json
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      - key: NODE_VERSION
+        value: 16
+      - key: CI
+        value: false
+      - key: NODE_ENV
+        value: production 

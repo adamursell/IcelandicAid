@@ -26,7 +26,7 @@ const Flashcard = ({ card }) => {
             {card.additional_info && (
               <div className="additional-info">{card.additional_info}</div>
             )}
-            {/* Add a wrapper div with explicit styling */}
+            {/* Pronunciation button on front */}
             <div style={{ 
               position: 'absolute', 
               bottom: '10px', 
@@ -38,7 +38,7 @@ const Flashcard = ({ card }) => {
           </div>
           <div className="flashcard-back">
             <h3>{card.back}</h3>
-            {/* Add a wrapper div with explicit styling */}
+            {/* Pronunciation button on back */}
             <div style={{ 
               position: 'absolute', 
               bottom: '10px', 
