@@ -7,17 +7,12 @@ const PronunciationButton = ({ text }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState(null);
 
-  // Add debug logging when component mounts
-  console.log(`PronunciationButton rendered for text: "${text}"`);
-
   const handlePronounce = async (e) => {
-    if (e) e.stopPropagation(); // Prevent event bubbling
+    if (e) {
+      e.stopPropagation();
+    }
     
-    console.log("============================================");
-    console.log("Pronunciation button clicked");
-    console.log("Text to pronounce:", text || "No text provided");
-    console.log("API URL from config:", config.API_URL);
-    console.log("============================================");
+    console.log("Pronunciation button clicked for:", text);
     
     if (!text) {
       console.error("No text provided to pronounce");
@@ -26,7 +21,6 @@ const PronunciationButton = ({ text }) => {
     }
     
     try {
-      console.log("Starting pronunciation request process");
       setIsPlaying(true);
       setError(null);
       
@@ -34,93 +28,39 @@ const PronunciationButton = ({ text }) => {
       const match = text.match(/^([^(]+)(?:\s*\(|$)/);
       const cleanText = match ? match[1].trim() : text;
       
-      console.log("Cleaned text for pronunciation:", cleanText);
+      console.log("Requesting pronunciation for:", cleanText);
+      console.log("API URL:", config.API_URL);
       
-      // Log request details before making the request
-      console.log("Preparing axios request to:", `${config.API_URL}/api/text-to-speech`);
-      console.log("Request payload:", { text: cleanText });
+      const response = await axios.post(`${config.API_URL}/api/text-to-speech`, {
+        text: cleanText
+      });
       
-      try {
-        console.log("Sending text-to-speech API request...");
-        
-        // Make the request with more detailed error capturing
-        const response = await axios.post(`${config.API_URL}/api/text-to-speech`, {
-          text: cleanText
-        }, {
-          timeout: 15000, // 15 second timeout
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        console.log("API response received:", {
-          status: response.status,
-          hasData: !!response.data,
-          hasAudio: !!(response.data && response.data.audio),
-          dataKeys: response.data ? Object.keys(response.data) : []
-        });
-        
-        if (!response.data || !response.data.audio) {
-          console.error("Invalid response format:", response.data);
-          throw new Error("No audio data received from server");
-        }
-        
-        // Log audio data size for debugging (first 50 chars)
-        const audioDataPreview = response.data.audio.substring(0, 50) + "...";
-        console.log("Audio data received (preview):", audioDataPreview);
-        
-        // Create and play audio from base64 string
-        console.log("Creating audio element");
-        const audioSrc = `data:audio/mp3;base64,${response.data.audio}`;
-        const audio = new Audio(audioSrc);
-        
-        // Set up event handlers before playing
-        audio.onplay = () => console.log("Audio playback started");
-        audio.onended = () => {
-          console.log("Audio playback completed");
-          setIsPlaying(false);
-        };
-        audio.onerror = (e) => {
-          console.error("Audio playback error:", e);
-          setError("Failed to play audio");
-          setIsPlaying(false);
-        };
-        
-        console.log("Attempting to play audio...");
-        await audio.play();
-        console.log("Audio play() method called successfully");
-        
-      } catch (axiosError) {
-        // Handle Axios-specific errors with more detail
-        console.error("Axios error details:", {
-          message: axiosError.message,
-          hasResponse: !!axiosError.response,
-          hasRequest: !!axiosError.request,
-          code: axiosError.code,
-          stack: axiosError.stack
-        });
-        
-        if (axiosError.response) {
-          // The server responded with a status code outside the 2xx range
-          const serverError = axiosError.response.data?.error || 'Unknown server error';
-          console.error(`Server error (${axiosError.response.status}):`, serverError);
-          console.error("Full error response:", axiosError.response.data);
-          setError(`Server error (${axiosError.response.status}): ${serverError}`);
-        } else if (axiosError.request) {
-          // The request was made but no response was received
-          console.error("No response received:", axiosError.request);
-          setError("No response from server. Check your internet connection or server status.");
-        } else {
-          // Something happened in setting up the request
-          console.error("Request setup error:", axiosError.message);
-          setError(`Request error: ${axiosError.message}`);
-        }
-        setIsPlaying(false);
+      if (!response.data || !response.data.audio) {
+        throw new Error("No audio data received");
       }
+      
+      // Create and play audio from base64 string
+      const audioSrc = `data:audio/mp3;base64,${response.data.audio}`;
+      const audio = new Audio(audioSrc);
+      
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        setError("Failed to play audio");
+        setIsPlaying(false);
+      };
+      
+      await audio.play();
     } catch (err) {
-      console.error("Unexpected error in pronunciation handler:", err);
-      console.error("Error stack:", err.stack);
-      setError(err.message || "Failed to get pronunciation");
+      console.error("Pronunciation error:", err);
+      
+      let errorMessage = "Failed to get pronunciation";
+      if (err.response) {
+        errorMessage = `Server error: ${err.response.status}`;
+      } else if (err.request) {
+        errorMessage = "No response from server";
+      }
+      
+      setError(errorMessage);
       setIsPlaying(false);
     }
   };
