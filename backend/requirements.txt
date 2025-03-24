@@ -9,3 +9,4 @@ flask_cors
 werkzeug
 google-cloud-texttospeech==2.14.1
 requests
+gunicorn

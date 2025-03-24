@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: KenniBackend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+    plan: free
+    rootDir: backend 
+  - type: web
+    name: KenniFrontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/build
+    envVars:
+      - key: NODE_VERSION
+        value: 18.x
+      - key: REACT_APP_API_URL
+        value: https://kennibackend.onrender.com
+    plan: free
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html 
