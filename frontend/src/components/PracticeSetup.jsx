@@ -14,15 +14,25 @@ const PracticeSetup = () => {
   const navigate = useNavigate();
   const userId = localStorage.getItem('userId');
 
+  console.log("PracticeSetup component loaded with userId:", userId);
+
   useEffect(() => {
     // Fetch available topics when component mounts
     const fetchTopics = async () => {
+      if (!userId) {
+        console.error("No userId available for fetching topics");
+        return;
+      }
+
       try {
+        console.log(`Fetching topics from ${config.API_URL}/users/${userId}/topics`);
         const response = await fetch(`${config.API_URL}/users/${userId}/topics`);
         if (!response.ok) {
-          throw new Error('Failed to fetch topics');
+          throw new Error(`Failed to fetch topics: ${response.status} ${response.statusText}`);
         }
         const data = await response.json();
+        console.log("Fetched topics:", data);
+        
         // Sort topics alphabetically and create options array
         const sortedTopics = data.topics.sort((a, b) => a.localeCompare(b));
         const topicOptions = [
@@ -79,6 +89,23 @@ const PracticeSetup = () => {
         quantity: quantity
       });
       
+      // Debug available cards
+      console.log("Available cards:", { 
+        maxAvailable, 
+        spacedAvailable, 
+        practiceMode
+      });
+      
+      // Add browser info for debugging
+      console.log("Browser info:", { 
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        localStorage: !!localStorage.getItem('userId')
+      });
+      
+      // Log API URL
+      console.log("API URL from config:", config.API_URL);
+      
       // Construct navigation URL
       const navigationUrl = `/practice-session?topic=${encodeURIComponent(selectedTopic.value)}&mode=${practiceMode}&quantity=${quantity}`;
       console.log("Navigating to:", navigationUrl);
@@ -91,10 +118,16 @@ const PracticeSetup = () => {
       };
       
       // Perform navigation
+      console.log("About to navigate with state:", navigationState);
       navigate(navigationUrl, { state: navigationState });
       
       // Log after navigation attempt
-      console.log("Navigation completed");
+      console.log("Navigation completed - if you see this, navigation was attempted");
+      
+      // Debug the new URL after navigation (should execute if navigate doesn't cause immediate redirect)
+      setTimeout(() => {
+        console.log("Current URL after navigation:", window.location.href);
+      }, 100);
     } catch (error) {
       console.error("Error during navigation:", error);
     }
@@ -135,64 +168,4 @@ const PracticeSetup = () => {
       <h2>Practice Setup</h2>
       
       <div className="practice-mode-selector">
-        <div className={`mode-option ${practiceMode === 'spaced' ? 'active' : ''}`} 
-             onClick={() => setPracticeMode('spaced')}>
-          Spaced repetition practice
-        </div>
-        <div className={`mode-option ${practiceMode === 'simple' ? 'active' : ''}`}
-             onClick={() => setPracticeMode('simple')}>
-          Simple practice
-        </div>
-      </div>
-      
-      <div className="setup-form">
-        {practiceMode === 'simple' ? (
-          <>
-            <div className="form-group">
-              <label htmlFor="topic">Select Topic:</label>
-              <Select
-                id="topic"
-                value={selectedTopic}
-                onChange={setSelectedTopic}
-                options={topics}
-                styles={customStyles}
-                isSearchable={true}
-                placeholder="Search for a topic..."
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="quantity">Number of Flashcards:</label>
-              <input
-                type="number"
-                id="quantity"
-                min="1"
-                max={maxAvailable}
-                value={quantity}
-                onChange={(e) => setQuantity(Math.min(parseInt(e.target.value), maxAvailable))}
-              />
-              <span className="available-cards">
-                (Maximum available: {maxAvailable})
-              </span>
-            </div>
-          </>
-        ) : (
-          <div className="spaced-info">
-            <p>Flashcards to practice today: {spacedAvailable}</p>
-          </div>
-        )}
-
-        <button 
-          onClick={handleStartPractice}
-          disabled={(practiceMode === 'simple' && maxAvailable === 0) || 
-                   (practiceMode === 'spaced' && spacedAvailable === 0)}
-          className="begin-practice-btn"
-        >
-          Begin practice
-        </button>
-      </div>
-    </div>
-  );
-};
-
-export default PracticeSetup; 
+        <div className={`mode-option ${practiceMode === 'spaced' ? 'active' : ''}`

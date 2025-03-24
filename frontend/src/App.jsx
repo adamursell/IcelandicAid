@@ -23,6 +23,9 @@ const App = () => {
     if (storedUserId && storedUserEmail) {
       setUserId(storedUserId);
       setUserEmail(storedUserEmail);
+      console.log("User authenticated from localStorage:", { userId: storedUserId });
+    } else {
+      console.log("No user auth found in localStorage");
     }
   }, []);
 
@@ -31,6 +34,7 @@ const App = () => {
     setUserEmail(email);
     localStorage.setItem('userId', id);
     localStorage.setItem('userEmail', email);
+    console.log("User logged in:", { userId: id, email });
   };
 
   const handleLogout = () => {
@@ -38,7 +42,11 @@ const App = () => {
     setUserEmail('');
     localStorage.removeItem('userId');
     localStorage.removeItem('userEmail');
+    console.log("User logged out");
   };
+
+  // Log when the router is rendered
+  console.log("Rendering App router with routes");
 
   return (
     <Router>
@@ -71,9 +79,12 @@ const App = () => {
           />
           <Route path="/generate" element={<GenerateFlashcards userId={userId} onLogout={handleLogout} />} />
           <Route path="/library" element={<FlashcardLibrary userId={userId} onLogout={handleLogout} />} />
+          
+          {/* Practice Routes - Make sure these are consistent */}
           <Route path="/practice" element={<Navigate to="/practice/setup" replace />} />
           <Route path="/practice/setup" element={<PracticeSetup />} />
           <Route path="/practice-session" element={<PracticeSession />} />
+          
           <Route 
             path="/conversation" 
             element={<ConversationalPractice userId={userId} onLogout={handleLogout} />} 

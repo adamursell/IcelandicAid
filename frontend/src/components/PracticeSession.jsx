@@ -20,8 +20,14 @@ const PracticeSession = () => {
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
 
+  // Add component-level debugging
+  console.log("PracticeSession component file loaded");
+  
+  // Improved debugging in the component mounting effect
   useEffect(() => {
     console.log("PracticeSession component mounted");
+    console.log("Current route:", window.location.pathname + window.location.search);
+    console.log("userId from localStorage:", userId);
     
     // Log location and search params state
     console.log("Location state:", location.state);
@@ -47,9 +53,13 @@ const PracticeSession = () => {
     }
   }, [location.state, searchParams]);
 
-  // Load flashcards when sessionParams is set
+  // Add detailed logging to the fetchFlashcards effect
   useEffect(() => {
-    console.log("Session params or userId changed:", { sessionParams, userId });
+    console.log("Session params or userId changed:", { 
+      hasSessionParams: !!sessionParams, 
+      sessionParams, 
+      userId 
+    });
     
     if (sessionParams && userId) {
       console.log("Calling fetchFlashcards()");
@@ -74,8 +84,19 @@ const PracticeSession = () => {
       const { topic, quantity, practiceMode } = sessionParams;
       console.log('Starting practice session with:', { topic, quantity, practiceMode });
       
-      // Log API URL in use
+      // Add API URL debugging
       console.log('API URL from config:', config.API_URL);
+      
+      // Test if API is reachable
+      try {
+        const testResponse = await fetch(`${config.API_URL}/health`, { 
+          method: 'GET',
+          mode: 'cors'
+        });
+        console.log('API health check response:', { status: testResponse.status, ok: testResponse.ok });
+      } catch (healthError) {
+        console.error('API health check failed:', healthError);
+      }
       
       // Start a new practice session
       console.log("Attempting to start practice session");
