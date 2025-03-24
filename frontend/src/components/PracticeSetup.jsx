@@ -72,14 +72,32 @@ const PracticeSetup = () => {
   }, [selectedTopic, userId, practiceMode]);
 
   const handleStartPractice = () => {
-    // Include critical parameters in the URL for persistence on refresh
-    navigate(`/practice-session?topic=${encodeURIComponent(selectedTopic.value)}&mode=${practiceMode}&quantity=${quantity}`, {
-      state: {
+    try {
+      console.log("Starting practice with:", {
+        topic: selectedTopic.value,
+        mode: practiceMode,
+        quantity: quantity
+      });
+      
+      // Construct navigation URL
+      const navigationUrl = `/practice-session?topic=${encodeURIComponent(selectedTopic.value)}&mode=${practiceMode}&quantity=${quantity}`;
+      console.log("Navigating to:", navigationUrl);
+      
+      // Create state object
+      const navigationState = {
         topic: selectedTopic.value,
         quantity: quantity,
         practiceMode: practiceMode
-      }
-    });
+      };
+      
+      // Perform navigation
+      navigate(navigationUrl, { state: navigationState });
+      
+      // Log after navigation attempt
+      console.log("Navigation completed");
+    } catch (error) {
+      console.error("Error during navigation:", error);
+    }
   };
 
   const customStyles = {

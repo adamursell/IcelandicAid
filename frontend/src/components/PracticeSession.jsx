@@ -17,31 +17,48 @@ const PracticeSession = () => {
   const [loading, setLoading] = useState(true);
   const [sessionId, setSessionId] = useState(null);
   const [sessionParams, setSessionParams] = useState(null);
+  const [error, setError] = useState(null);
   const inputRef = useRef(null);
 
-  // Extract parameters from either location.state or URL search params
   useEffect(() => {
+    console.log("PracticeSession component mounted");
+    
+    // Log location and search params state
+    console.log("Location state:", location.state);
+    console.log("URL search params:", Object.fromEntries([...searchParams]));
+    
     if (location.state) {
-      // Use state if available
+      console.log("Using location state for session parameters");
       setSessionParams(location.state);
     } else {
-      // Otherwise extract from URL params
+      console.log("Using URL parameters for session parameters");
       const topic = searchParams.get('topic') || 'all';
       const mode = searchParams.get('mode') || 'spaced';
       const quantity = parseInt(searchParams.get('quantity') || '10', 10);
       
-      setSessionParams({
+      const params = {
         topic,
         practiceMode: mode,
         quantity
-      });
+      };
+      
+      console.log("Extracted URL parameters:", params);
+      setSessionParams(params);
     }
   }, [location.state, searchParams]);
 
   // Load flashcards when sessionParams is set
   useEffect(() => {
+    console.log("Session params or userId changed:", { sessionParams, userId });
+    
     if (sessionParams && userId) {
+      console.log("Calling fetchFlashcards()");
       fetchFlashcards();
+    } else {
+      console.log("Missing required data for fetching flashcards:", { 
+        hasSessionParams: !!sessionParams, 
+        hasUserId: !!userId 
+      });
     }
   }, [sessionParams, userId]);
 
@@ -57,28 +74,40 @@ const PracticeSession = () => {
       const { topic, quantity, practiceMode } = sessionParams;
       console.log('Starting practice session with:', { topic, quantity, practiceMode });
       
-      // Start a new practice session
-      const sessionResponse = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          practice_type: practiceMode === 'spaced' ? 'flashcard' : 'flashcard',
-          session_data: {
-            topic,
-            quantity,
-            practice_mode: practiceMode
-          }
-        }),
-      });
+      // Log API URL in use
+      console.log('API URL from config:', config.API_URL);
       
-      if (sessionResponse.ok) {
-        const sessionData = await sessionResponse.json();
-        console.log('Practice session started:', sessionData);
-        setSessionId(sessionData.session_id);
-      } else {
-        console.error('Failed to start practice session:', await sessionResponse.text());
+      // Start a new practice session
+      console.log("Attempting to start practice session");
+      const sessionUrl = `${config.API_URL}/users/${userId}/practice-sessions/start`;
+      console.log("Session API URL:", sessionUrl);
+      
+      try {
+        const sessionResponse = await fetch(sessionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            practice_type: practiceMode === 'spaced' ? 'flashcard' : 'flashcard',
+            session_data: {
+              topic,
+              quantity,
+              practice_mode: practiceMode
+            }
+          }),
+        });
+        
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          console.log('Practice session started:', sessionData);
+          setSessionId(sessionData.session_id);
+        } else {
+          console.error('Failed to start practice session:', await sessionResponse.text());
+        }
+      } catch (sessionError) {
+        console.error('Error starting practice session:', sessionError);
+        // Continue anyway - session ID is not critical
       }
       
       // Construct the API URL based on practice mode
@@ -87,25 +116,37 @@ const PracticeSession = () => {
         : `${config.API_URL}/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
       
       console.log('Fetching flashcards from:', apiUrl);
-      const response = await fetch(apiUrl);
       
-      if (!response.ok) {
-        console.error('Failed to fetch flashcards:', await response.text());
-        setLoading(false);
-        return;
+      try {
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Failed to fetch flashcards:', errorText);
+          setError(`Server error: ${response.status} ${response.statusText}`);
+          setLoading(false);
+          return;
+        }
+        
+        const data = await response.json();
+        console.log('Received flashcards:', data);
+        
+        if (!data.flashcards || data.flashcards.length === 0) {
+          console.log('No flashcards available');
+          setIsComplete(true);
+        } else {
+          console.log(`Loaded ${data.flashcards.length} flashcards`);
+          setFlashcards(data.flashcards);
+        }
+      } catch (fetchError) {
+        console.error('Error fetching flashcards:', fetchError);
+        setError(`Network error: ${fetchError.message}`);
       }
       
-      const data = await response.json();
-      console.log('Received flashcards:', data);
-      
-      if (data.flashcards.length === 0) {
-        setIsComplete(true);
-      } else {
-        setFlashcards(data.flashcards);
-      }
       setLoading(false);
     } catch (error) {
-      console.error('Error fetching flashcards:', error);
+      console.error('Unexpected error in fetchFlashcards:', error);
+      setError(`General error: ${error.message}`);
       setLoading(false);
     }
   };
@@ -358,6 +399,45 @@ const PracticeSession = () => {
             : "No flashcards are available for practice."}
         </p>
         <button onClick={handleEndSession}>Return Home</button>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="practice-session">
+        <HomeButton />
+        <h2>Practice Session Error</h2>
+        <div className="error-container" style={{ 
+          border: '1px solid #f44336',
+          borderRadius: '4px',
+          padding: '20px',
+          margin: '20px 0',
+          backgroundColor: '#ffebee'
+        }}>
+          <h3>Something went wrong</h3>
+          <p>{error}</p>
+          <div style={{ marginTop: '20px' }}>
+            <button onClick={() => navigate('/practice/setup')}>
+              Return to Practice Setup
+            </button>
+          </div>
+        </div>
+        <div className="debug-info" style={{ 
+          marginTop: '30px',
+          padding: '10px',
+          backgroundColor: '#f5f5f5',
+          borderRadius: '4px',
+          fontSize: '12px'
+        }}>
+          <h4>Debug Information</h4>
+          <pre>{JSON.stringify({
+            userId: userId ? 'exists' : 'missing',
+            apiUrl: config.API_URL,
+            sessionParams,
+            currentUrl: window.location.href
+          }, null, 2)}</pre>
+        </div>
       </div>
     );
   }
