@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, TIMESTAMP, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, TIMESTAMP, DateTime, Float, Boolean
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,6 +18,7 @@ class User(Base):
     gender = Column(String(50), default='neutral')
     additional_info = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     flashcard_libraries = relationship('FlashcardLibrary', back_populates='user')
     generations = relationship('FlashcardGeneration', back_populates='user')
@@ -32,6 +33,7 @@ class FlashcardLibrary(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     library_name = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship('User', back_populates='flashcard_libraries')
     flashcards = relationship('Flashcard', back_populates='library')
@@ -46,6 +48,7 @@ class Flashcard(Base):
     back_text = Column(String(255), nullable=False)  # Icelandic text
     additional_info = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     next_repetition_space = Column(Integer, default=1, nullable=False)  # Default 1 day in days
     next_practice_time = Column(DateTime, server_default=func.now(), nullable=False)  # Default to creation time
 
@@ -84,7 +87,7 @@ class Conversation(Base):
     scenario = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     completed_at = Column(DateTime, nullable=True)
-    overall_score = Column(Integer, nullable=True)
+    overall_score = Column(Float, nullable=True)
     overall_feedback = Column(Text, nullable=True)
     main_strengths = Column(Text, nullable=True)
     areas_to_improve = Column(Text, nullable=True)
@@ -115,9 +118,10 @@ class ConversationFeedback(Base):
     feedback_summary = Column(Text, nullable=True)
     main_strengths = Column(Text, nullable=True)  # JSON string containing list of strengths
     areas_to_improve = Column(Text, nullable=True)  # JSON string containing list of areas to improve
-    overall_score = Column(Integer, nullable=True)
-    grammar_score = Column(Integer, nullable=True)  # Score from 0-10 for grammatical accuracy
-    vocabulary_score = Column(Integer, nullable=True)  # Score from 0-10 for vocabulary quality
+    overall_score = Column(Float, nullable=True)
+    grammar_score = Column(Float, nullable=True)  # Score from 0-10 for grammatical accuracy
+    vocabulary_score = Column(Float, nullable=True)  # Score from 0-10 for vocabulary quality
+    challenging_words = Column(Text, nullable=True)  # Store challenging words as JSON string
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships

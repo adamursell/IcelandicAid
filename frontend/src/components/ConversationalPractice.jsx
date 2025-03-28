@@ -63,129 +63,220 @@ const FeedbackPane = ({ feedback }) => {
 const FeedbackOverlay = ({ feedback, onClose }) => {
   if (!feedback) return null;
   
-  // Ensure all required fields exist with fallbacks
-  const feedbackSummary = feedback.feedback_summary || "No summary available.";
-  const mainStrengths = Array.isArray(feedback.main_strengths) ? feedback.main_strengths : [];
-  const areasToImprove = Array.isArray(feedback.areas_to_improve) ? feedback.areas_to_improve : [];
-  const overallScore = typeof feedback.overall_score === 'number' ? feedback.overall_score : 5; // Default to 5 if not available
-  const grammarScore = typeof feedback.grammar_score === 'number' ? feedback.grammar_score : null;
-  const vocabularyScore = typeof feedback.vocabulary_score === 'number' ? feedback.vocabulary_score : null;
+  // Ensure feedback has the required properties
+  const {
+    feedback_summary,
+    main_strengths = [],
+    areas_to_improve = [],
+    grammar_score = 0,
+    vocabulary_score = 0,
+    overall_score = 0,
+    challenging_words = []
+  } = feedback;
   
-  // Calculate the score percentages for the progress bars
-  const overallScorePercentage = (overallScore / 10) * 100;
-  const grammarScorePercentage = grammarScore !== null ? (grammarScore / 10) * 100 : null;
-  const vocabularyScorePercentage = vocabularyScore !== null ? (vocabularyScore / 10) * 100 : null;
+  // Add state to track which words have been added to the library
+  const [addedWords, setAddedWords] = useState([]);
   
-  // Function to get color based on score (heatmap from red to green)
   const getScoreColor = (score) => {
-    // Score from 1-10
-    if (score <= 3) return '#e74c3c'; // Red for low scores
-    if (score <= 5) return '#f39c12'; // Orange/Yellow for medium-low scores
-    if (score <= 7) return '#f1c40f'; // Yellow for medium scores
-    if (score <= 9) return '#2ecc71'; // Light green for good scores
-    return '#27ae60'; // Dark green for excellent scores
+    if (score >= 8) return '#4caf50'; // green
+    if (score >= 5) return '#ff9800'; // orange
+    return '#f44336'; // red
   };
   
-  // Function to safely render text that might contain special characters
   const safeRender = (text) => {
-    if (typeof text !== 'string') return '';
-    
-    try {
-      // First check if the text might be a stringified JSON that needs parsing
-      if (text.startsWith('{') && text.endsWith('}')) {
-        try {
-          const parsed = JSON.parse(text);
-          return typeof parsed === 'string' ? parsed.replace(/"/g, '') : String(parsed);
-        } catch (e) {
-          // If parsing fails, continue with normal text processing
-          console.log('Failed to parse potential JSON string:', e);
-        }
-      }
+    if (!text) return '';
+    return text;
+  };
+
+  // Helper function to extract words from areas_to_improve
+  const extractWordsFromFeedback = () => {
+    // First check if there's a proper challenging_words array
+    if (Array.isArray(challenging_words) && challenging_words.length > 0) {
+      return challenging_words;
+    }
+
+    // If no challenging words array, extract from areas to improve
+    const extractedWords = [];
+    areas_to_improve.forEach(area => {
+      // Try to extract words from improvement areas using various patterns
+      let match = area.match(/['']([^'']+)['']/);
+      if (!match) match = area.match(/['"]([\wáéíóúýþæöð]+)['"]/i);
       
-      // Handle newlines that might be in the text
-      return text.replace(/\\n/g, '\n').replace(/"/g, '');
-    } catch (e) {
-      console.error('Error in safeRender:', e);
-      return String(text);
+      if (match && match[1]) {
+        // Determine the meaning based on the context
+        let english = '';
+        let partOfSpeech = '';
+        let note = area;
+        
+        // Try to infer meaning from context
+        if (area.toLowerCase().includes('halló') || area.toLowerCase().includes('hallo')) {
+          english = 'hello';
+          partOfSpeech = 'interjection';
+        } else if (area.toLowerCase().includes('ég')) {
+          english = 'I';
+          partOfSpeech = 'pronoun';
+        } else if (area.toLowerCase().includes('heiti')) {
+          english = 'is called (my name is)';
+          partOfSpeech = 'verb';
+        }
+        
+        extractedWords.push({
+          icelandic: match[1],
+          english,
+          part_of_speech: partOfSpeech,
+          note
+        });
+      }
+    });
+    
+    // Add default common words if nothing was extracted
+    if (extractedWords.length === 0) {
+      extractedWords.push(
+        { icelandic: 'halló', english: 'hello', part_of_speech: 'interjection', note: 'Common greeting' },
+        { icelandic: 'ég', english: 'I', part_of_speech: 'pronoun', note: 'First person singular pronoun' },
+        { icelandic: 'heiti', english: 'am called/my name is', part_of_speech: 'verb', note: 'Used to introduce yourself' }
+      );
+    }
+    
+    return extractedWords;
+  };
+
+  const words = extractWordsFromFeedback();
+  const userId = localStorage.getItem('userId');
+
+  const saveWordToLibrary = async (word) => {
+    try {
+      console.log(`Saving word to library: ${word.icelandic} - ${word.english}`);
+      const response = await axios.post(`${config.API_URL}/users/${userId}/save-challenging-word`, {
+        icelandic: word.icelandic,
+        english: word.english,
+        part_of_speech: word.part_of_speech || '',
+        note: word.note || '',
+        topic: 'Conversation Words'
+      });
+      
+      if (response.status === 200) {
+        // Add the word to the addedWords state to hide it
+        setAddedWords([...addedWords, word.icelandic]);
+        // No alert - just remove the word from view
+      }
+    } catch (err) {
+      console.error('Error saving word:', err);
+      // Keep the error alert since the user needs to know something went wrong
+      alert(`Error saving "${word.icelandic}". Please try again.`);
     }
   };
-  
+
   return (
     <div className="feedback-overlay">
       <div className="feedback-modal">
-        <button className="close-button" onClick={onClose}>×</button>
         <h2>Conversation Feedback</h2>
         
         <div className="feedback-summary">
           <h3>Summary</h3>
-          <p>{safeRender(feedbackSummary)}</p>
+          <p>{safeRender(feedback_summary)}</p>
         </div>
         
         <div className="score-section">
-          <div className="score-row">
-            {grammarScore !== null && (
-              <div className="grammar-score">
-                <h3>Grammatical Accuracy: {grammarScore}/10</h3>
-                <div className="score-bar-container">
-                  <div 
-                    className="score-bar grammar-bar" 
-                    style={{ width: `${grammarScorePercentage}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
-            
-            {vocabularyScore !== null && (
-              <div className="vocabulary-score">
-                <h3>Vocabulary Usage: {vocabularyScore}/10</h3>
-                <div className="score-bar-container">
-                  <div 
-                    className="score-bar vocabulary-bar" 
-                    style={{ width: `${vocabularyScorePercentage}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
+          <h3 className="overall-grade-header">Overall grade: {overall_score}/10</h3>
+          <div className="score-bar-container">
+            <div 
+              className="score-bar overall-score" 
+              style={{ 
+                width: `${overall_score * 10}%`,
+                backgroundColor: getScoreColor(overall_score)
+              }}
+            ></div>
           </div>
           
-          <div className="overall-score">
-            <h3 className="overall-grade-header">Overall grade: {overallScore}/10</h3>
-            <div className="score-bar-container">
-              <div 
-                className="score-bar" 
-                style={{ 
-                  width: `${overallScorePercentage}%`,
-                  backgroundColor: getScoreColor(overallScore)
-                }}
-              ></div>
+          <div className="score-row">
+            <div>
+              <h3>Grammatical Accuracy: {grammar_score}/10</h3>
+              <div className="score-bar-container">
+                <div 
+                  className="score-bar grammar-bar" 
+                  style={{ 
+                    width: `${grammar_score * 10}%`,
+                    backgroundColor: getScoreColor(grammar_score)
+                  }}
+                ></div>
+              </div>
+            </div>
+            
+            <div>
+              <h3>Vocabulary Usage: {vocabulary_score}/10</h3>
+              <div className="score-bar-container">
+                <div 
+                  className="score-bar vocabulary-bar" 
+                  style={{ 
+                    width: `${vocabulary_score * 10}%`,
+                    backgroundColor: getScoreColor(vocabulary_score)
+                  }}
+                ></div>
+              </div>
             </div>
           </div>
         </div>
         
         <div className="feedback-strengths">
           <h3>Main Strengths</h3>
-          {mainStrengths.length > 0 ? (
-            <ul>
-              {mainStrengths.map((strength, index) => (
-                <li key={index}>{safeRender(strength)}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No specific strengths identified.</p>
-          )}
+          <ul>
+            {main_strengths.map((strength, index) => (
+              <li key={index}>{safeRender(strength)}</li>
+            ))}
+          </ul>
         </div>
         
         <div className="feedback-improvements">
           <h3>Areas to Improve</h3>
-          {areasToImprove.length > 0 ? (
-            <ul>
-              {areasToImprove.map((area, index) => (
-                <li key={index}>{safeRender(area)}</li>
+          <ul>
+            {areas_to_improve.map((area, index) => (
+              <li key={index}>{safeRender(area)}</li>
+            ))}
+          </ul>
+        </div>
+        
+        {/* New Challenging Words Section */}
+        <div className="feedback-challenging-words">
+          <h3>Words You Struggled With</h3>
+          <div className="words-container">
+            {words
+              .filter(word => !addedWords.includes(word.icelandic)) // Only show words not added yet
+              .map((word, index) => (
+                <div className="word-card" key={index}>
+                  <div className="word-content">
+                    <div className="word-icelandic">{word.icelandic}</div>
+                    <div className="word-english">{word.english}</div>
+                    {word.part_of_speech && (
+                      <div className="word-part-speech">{word.part_of_speech}</div>
+                    )}
+                    {word.note && (
+                      <div className="word-note">{word.note}</div>
+                    )}
+                  </div>
+                  <button 
+                    className="word-add-button"
+                    onClick={() => saveWordToLibrary(word)}
+                  >
+                    Add to Library
+                  </button>
+                </div>
               ))}
-            </ul>
-          ) : (
-            <p>No specific areas for improvement identified.</p>
+          </div>
+          
+          {/* Show a message when all words have been added */}
+          {words.length > 0 && addedWords.length === words.length && (
+            <p className="all-words-added">All words have been added to your library</p>
           )}
+        </div>
+        
+        <div className="button-container">
+          <button 
+            className="start-new-conversation-btn"
+            onClick={onClose}
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import PracticeSession from './components/PracticeSession';
 import ConversationalPractice from './components/ConversationalPractice';
 import AccountSettings from './components/AccountSettings';
 import LearnerProgress from './components/LearnerProgress';
+import ConversationFeedback from './views/ConversationFeedback';
 
 const App = () => {
   const [userId, setUserId] = useState(null);
@@ -115,6 +116,7 @@ const App = () => {
               )
             } 
           />
+          <Route path="/conversations/:conversationId/feedback" element={<ConversationFeedback />} />
         </Routes>
       </div>
     </Router>

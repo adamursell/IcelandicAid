@@ -1,0 +1,214 @@
+.challenging-words-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  background-color: #f9f9f9;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.challenging-words-section h3 {
+  margin-top: 0;
+  font-size: 1.4rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.challenging-words-section p {
+  color: #666;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.table-responsive {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.challenging-words-container {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.challenging-words-container h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  color: #333;
+  border-bottom: 2px solid #6c757d;
+  padding-bottom: 0.5rem;
+}
+
+.challenging-words-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.challenging-words-table th {
+  background-color: #007bff;
+  color: white;
+  text-align: left;
+  padding: 10px 15px;
+  font-weight: 600;
+}
+
+.challenging-words-table td {
+  padding: 10px 15px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: top;
+}
+
+.challenging-words-table tbody tr:hover {
+  background-color: #e9ecef;
+}
+
+.challenging-words-table tbody tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+
+.no-words-message {
+  color: #6c757d;
+  font-style: italic;
+  text-align: center;
+  padding: 1rem;
+}
+
+/* Column widths for better readability */
+.challenging-words-table th:nth-child(1), 
+.challenging-words-table td:nth-child(1) {
+  width: 25%;
+  font-weight: 500;
+}
+
+.challenging-words-table th:nth-child(2), 
+.challenging-words-table td:nth-child(2) {
+  width: 25%;
+}
+
+.challenging-words-table th:nth-child(3), 
+.challenging-words-table td:nth-child(3) {
+  width: 20%;
+  color: #555;
+  font-style: italic;
+}
+
+.challenging-words-table th:nth-child(4), 
+.challenging-words-table td:nth-child(4) {
+  width: 30%;
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+  .challenging-words-table {
+    font-size: 0.85rem;
+  }
+  
+  .challenging-words-table th,
+  .challenging-words-table td {
+    padding: 8px 10px;
+  }
+  
+  .challenging-words-container h3 {
+    font-size: 1.1rem;
+  }
+}
+
+/* Animation for table rows when they appear */
+.challenging-words-table tbody tr {
+  opacity: 0;
+  animation: fadeIn 0.5s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.challenging-words-table tbody tr:nth-child(1) { animation-delay: 0.1s; }
+.challenging-words-table tbody tr:nth-child(2) { animation-delay: 0.2s; }
+.challenging-words-table tbody tr:nth-child(3) { animation-delay: 0.3s; }
+.challenging-words-table tbody tr:nth-child(4) { animation-delay: 0.4s; }
+.challenging-words-table tbody tr:nth-child(5) { animation-delay: 0.5s; }
+.challenging-words-table tbody tr:nth-child(6) { animation-delay: 0.6s; }
+.challenging-words-table tbody tr:nth-child(7) { animation-delay: 0.7s; }
+.challenging-words-table tbody tr:nth-child(8) { animation-delay: 0.8s; }
+.challenging-words-table tbody tr:nth-child(9) { animation-delay: 0.9s; }
+.challenging-words-table tbody tr:nth-child(10) { animation-delay: 1s; }
+
+.word-icelandic {
+  font-weight: 500;
+  color: #2c5282;
+}
+
+.save-word-btn {
+  padding: 0.5rem 0.9rem;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 130px;
+}
+
+.save-word-btn:hover {
+  background-color: #2a75f3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(66, 133, 244, 0.3);
+}
+
+.save-word-btn:disabled {
+  background-color: #a0c4ff;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.saved-button {
+  padding: 0.5rem 0.9rem;
+  background-color: #e6f4ea;
+  color: #137333;
+  border: 1px solid #d4e9db;
+  border-radius: 5px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 130px;
+}
+
+.checkmark {
+  margin-right: 6px;
+  font-weight: bold;
+}
+
+.saved-word {
+  background-color: #fafffe;
+}
+
+.error-message {
+  color: #d32f2f;
+  font-size: 0.8rem;
+  margin-top: 0.4rem;
+}
+
+.empty-message {
+  text-align: center;
+  padding: 2rem;
+  color: #888;
+  font-style: italic;
+  background-color: white;
+  border-radius: 6px;
+  border: 1px dashed #ddd;
+} 

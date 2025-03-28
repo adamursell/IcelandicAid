@@ -1,0 +1,58 @@
+/* Challenging words section for the feedback summary */
+.feedback-section.challenging-words {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.challenging-words h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.words-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.word-item {
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+}
+
+.word-item .word {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c5282;
+  margin-bottom: 5px;
+}
+
+.word-item .translation {
+  font-size: 14px;
+  color: #4a5568;
+  margin-bottom: 10px;
+}
+
+.word-item .add-to-library {
+  background-color: #4285f4;
+  color: white;
+  font-weight: 500;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.2s;
+  text-align: center;
+  margin-top: auto;
+}
+
+.word-item .add-to-library:hover {
+  background-color: #2a75f3;
+} 

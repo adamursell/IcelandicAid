@@ -64,7 +64,7 @@ else:
 # ---------------------------
 # SQLAlchemy Setup & Database Models
 # ---------------------------
-from sqlalchemy import create_engine, func, desc, or_, and_, distinct
+from sqlalchemy import create_engine, func, desc, or_, and_, distinct, Column, String, Integer, Float, ForeignKey, DateTime, Boolean, Text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
 
@@ -111,9 +111,64 @@ else:
 # Create a scoped session factory instead of a global session
 Session = scoped_session(sessionmaker(bind=engine))
 
+# ---------------------------
+# Database Migration Helpers
+# ---------------------------
+def check_and_update_schema():
+    """Check if database schema matches the models and add missing columns if needed."""
+    from sqlalchemy import inspect
+    
+    inspector = inspect(engine)
+    
+    # Check users table for updated_at column
+    try:
+        user_columns = [col['name'] for col in inspector.get_columns('users')]
+        if 'updated_at' not in user_columns:
+            logger.warning("Adding missing updated_at column to users table")
+            if engine.url.drivername == 'sqlite':
+                # For SQLite, we need to use raw SQL or recreate the database
+                # SQLite doesn't support ADD COLUMN with DEFAULT clause directly
+                with engine.connect() as connection:
+                    connection.execute("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP")
+                    # Update existing rows with current timestamp
+                    connection.execute("UPDATE users SET updated_at = CURRENT_TIMESTAMP")
+                    connection.commit()
+                logger.info("Added updated_at column to users table")
+            else:
+                # For other databases like PostgreSQL
+                with engine.connect() as connection:
+                    connection.execute("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                    connection.commit()
+                logger.info("Added updated_at column to users table")
+    except Exception as e:
+        logger.error(f"Error checking/updating users table schema: {str(e)}")
+    
+    # Check for challenging_words in conversation_feedbacks table
+    try:
+        if inspector.has_table('conversation_feedbacks'):
+            feedback_columns = [col['name'] for col in inspector.get_columns('conversation_feedbacks')]
+            if 'challenging_words' not in feedback_columns:
+                logger.warning("Adding missing challenging_words column to conversation_feedbacks table")
+                if engine.url.drivername == 'sqlite':
+                    with engine.connect() as connection:
+                        connection.execute("ALTER TABLE conversation_feedbacks ADD COLUMN challenging_words TEXT")
+                        connection.commit()
+                    logger.info("Added challenging_words column to conversation_feedbacks table")
+                else:
+                    with engine.connect() as connection:
+                        connection.execute("ALTER TABLE conversation_feedbacks ADD COLUMN challenging_words TEXT")
+                        connection.commit()
+                    logger.info("Added challenging_words column to conversation_feedbacks table")
+    except Exception as e:
+        logger.error(f"Error checking/updating conversation_feedbacks table schema: {str(e)}")
+
 # Create the tables in the database (if they don't already exist)
 Base.metadata.create_all(engine)
 logger.info("Database tables created.")
+
+# Check and update database schema for existing tables
+check_and_update_schema()
+logger.info("Database schema checked and updated if needed.")
 
 # ---------------------------
 # Anthropic API Client Wrapper
@@ -1032,19 +1087,24 @@ Based on this conversation and the user's profile, please provide:
 2. 3-5 main strengths demonstrated by the student
 3. 3-5 key areas for improvement
 4. An overall score out of 10 (where 10 is perfect fluency and accuracy)
+5. A list of 5-10 challenging words or phrases that the student struggled with during the conversation
 
 CRITICAL INSTRUCTION: Your response MUST be ONLY a valid JSON object with EXACTLY this structure:
 {
   "feedback_summary": "Replace this with your actual summary of the student's performance",
   "main_strengths": ["Replace with actual strength 1", "Replace with actual strength 2", "Replace with actual strength 3"],
   "areas_to_improve": ["Replace with actual area 1", "Replace with actual area 2", "Replace with actual area 3"],
-  "overall_score": 0
+  "overall_score": 0,
+  "challenging_words": [
+    {"icelandic": "Icelandic word", "english": "English translation", "part_of_speech": "noun/verb/adjective/etc", "note": "Brief explanation of usage/difficulty"}
+  ]
 }
 
 EXTREMELY IMPORTANT:
 - Your response MUST begin with the opening curly brace '{' with NO preceding characters, not even whitespace or newlines.
 - Replace the placeholder text and values above with your actual feedback.
 - The overall_score should be a number between 1 and 10, not a string.
+- The challenging_words array should contain 5-10 objects, each with icelandic, english, part_of_speech, and note fields.
 - DO NOT include ANY text, explanations, or content outside of this JSON structure. 
 - DO NOT include markdown formatting, code blocks, or any other non-JSON content.
 - DO NOT include the word "json" or any other text before or after the JSON object.
@@ -1348,8 +1408,9 @@ def end_conversation():
     data = request.get_json()
     user_id = data.get('user_id')
     conversation_id = data.get('conversation_id')
+    force_regenerate = data.get('force_regenerate', False)  # New parameter to force regeneration
     
-    logger.info(f"Ending conversation: user_id={user_id}, conversation_id={conversation_id}")
+    logger.info(f"Ending conversation: user_id={user_id}, conversation_id={conversation_id}, force_regenerate={force_regenerate}")
     
     try:
         # Get the conversation
@@ -1359,7 +1420,7 @@ def end_conversation():
             return jsonify({"error": "Conversation not found"}), 404
             
         # Check if the conversation is already completed
-        if conversation.completed_at:
+        if conversation.completed_at and not force_regenerate:
             logger.info(f"Conversation {conversation_id} is already marked as completed")
             
             # Check if feedback already exists in the new table
@@ -1369,11 +1430,34 @@ def end_conversation():
             
             if existing_feedback:
                 logger.info(f"Feedback already exists for conversation {conversation_id}, returning existing feedback")
+                # Check if challenging words exist
+                if existing_feedback.challenging_words:
+                    try:
+                        challenging_words = json.loads(existing_feedback.challenging_words)
+                        if len(challenging_words) > 0:
+                            logger.info(f"Found {len(challenging_words)} challenging words in existing feedback")
+                        else:
+                            logger.info("No challenging words found in existing feedback")
+                    except json.JSONDecodeError:
+                        logger.error("Error parsing challenging words from existing feedback")
+                
                 return jsonify({
                     "message": "Conversation already ended",
                     "feedback_available": True,
                     "conversation_id": conversation_id
                 }), 200
+        
+        # If force_regenerate is true, we'll delete any existing feedback
+        if force_regenerate:
+            logger.info(f"Force regenerating feedback for conversation {conversation_id}")
+            existing_feedback = Session.query(ConversationFeedback).filter_by(
+                conversation_id=conversation_id
+            ).first()
+            
+            if existing_feedback:
+                logger.info(f"Deleting existing feedback for conversation {conversation_id}")
+                Session.delete(existing_feedback)
+                Session.commit()
         
         # Mark the conversation as completed if not already
         if not conversation.completed_at:
@@ -1459,7 +1543,8 @@ Follow this step-by-step process to evaluate the student's performance:
    - Score 10: Always used the most appropriate vocabulary for the context and conveyed meaning perfectly
    - Score 0: Did not use any vocabulary that conveyed the correct meaning
    - Consider word choice, idioms, formality level, etc.
-5. Finally, consider all the above factors to determine an overall score from 1 to 10
+5. Identify 5-10 challenging words or phrases that the student struggled with in Icelandic, with English translations and notes
+6. Finally, consider all the above factors to determine an overall score from 1 to 10
 
 Return ONLY a valid JSON object with the following structure:
 {{
@@ -1468,7 +1553,10 @@ Return ONLY a valid JSON object with the following structure:
   "areas_to_improve": ["Area 1", "Area 2", "Area 3"],
   "grammar_score": number between 0 and 10,
   "vocabulary_score": number between 0 and 10,
-  "overall_score": number between 1 and 10
+  "overall_score": number between 1 and 10,
+  "challenging_words": [
+    {{"icelandic": "Icelandic word", "english": "English translation", "part_of_speech": "noun/verb/etc", "note": "Brief explanation"}}
+  ]
 }}
 
 The JSON must be valid with no extra text before or after. Do not include explanations outside the JSON structure.
@@ -1511,8 +1599,17 @@ The JSON must be valid with no extra text before or after. Do not include explan
                     logger.info(f"Successfully parsed feedback JSON: {feedback_data}")
                     
                     # Validate the required fields
-                    if not all(k in feedback_data for k in ["feedback_summary", "main_strengths", "areas_to_improve", "grammar_score", "vocabulary_score", "overall_score"]):
+                    required_fields = ["feedback_summary", "main_strengths", "areas_to_improve", "grammar_score", "vocabulary_score", "overall_score"]
+                    if not all(k in feedback_data for k in required_fields):
                         raise ValueError("Missing required fields in feedback JSON")
+                    
+                    # Extract and store challenging words if available
+                    challenging_words = feedback_data.get("challenging_words", [])
+                    logger.info(f"Extracted {len(challenging_words)} challenging words from feedback")
+                    
+                    # Log each challenging word for debugging
+                    for i, word in enumerate(challenging_words):
+                        logger.info(f"Word {i+1}: {word.get('icelandic', '(missing)')} - {word.get('english', '(missing)')}")
                     
                     # Create a new ConversationFeedback record
                     new_feedback = ConversationFeedback(
@@ -1523,8 +1620,12 @@ The JSON must be valid with no extra text before or after. Do not include explan
                         areas_to_improve=json.dumps(feedback_data["areas_to_improve"]),
                         grammar_score=feedback_data["grammar_score"],
                         vocabulary_score=feedback_data["vocabulary_score"],
-                        overall_score=feedback_data["overall_score"]
+                        overall_score=feedback_data["overall_score"],
+                        challenging_words=json.dumps(challenging_words)  # Store challenging words as JSON
                     )
+                    
+                    # Log the challenging_words JSON string that's being stored
+                    logger.info(f"Storing challenging_words JSON: {json.dumps(challenging_words)}")
                     
                     Session.add(new_feedback)
                     Session.commit()
@@ -1533,7 +1634,9 @@ The JSON must be valid with no extra text before or after. Do not include explan
                     return jsonify({
                         "message": "Conversation ended and feedback generated successfully",
                         "feedback_available": True,
-                        "conversation_id": conversation_id
+                        "conversation_id": conversation_id,
+                        "has_challenging_words": len(challenging_words) > 0,
+                        "challenging_words_count": len(challenging_words)
                     }), 200
                     
                 except (json.JSONDecodeError, ValueError) as e:
@@ -1597,6 +1700,15 @@ def get_user_learning_profile(user_id):
             ).first()
             
             if feedback:
+                # Parse challenging words if available
+                challenging_words = []
+                if feedback.challenging_words:
+                    try:
+                        challenging_words = json.loads(feedback.challenging_words)
+                    except json.JSONDecodeError:
+                        logger.error(f"JSON decode error when retrieving challenging words for conversation {conversation.id}")
+                        challenging_words = []
+                
                 learning_profile["conversation_history"].append({
                     "conversation_id": conversation.id,
                     "scenario": conversation.scenario,
@@ -1604,7 +1716,8 @@ def get_user_learning_profile(user_id):
                     "feedback_summary": feedback.feedback_summary,
                     "main_strengths": json.loads(feedback.main_strengths) if feedback.main_strengths else [],
                     "areas_to_improve": json.loads(feedback.areas_to_improve) if feedback.areas_to_improve else [],
-                    "overall_score": feedback.overall_score
+                    "overall_score": feedback.overall_score,
+                    "challenging_words": challenging_words
                 })
             # For backward compatibility, check the old format
             elif conversation.overall_feedback:
@@ -1615,7 +1728,8 @@ def get_user_learning_profile(user_id):
                     "feedback_summary": conversation.overall_feedback,
                     "main_strengths": json.loads(conversation.main_strengths) if conversation.main_strengths else [],
                     "areas_to_improve": json.loads(conversation.areas_to_improve) if conversation.areas_to_improve else [],
-                    "overall_score": conversation.overall_score
+                    "overall_score": conversation.overall_score,
+                    "challenging_words": []  # Old format doesn't have challenging words
                 })
         
         return jsonify(learning_profile), 200
@@ -1636,10 +1750,35 @@ def get_conversation_feedback(conversation_id):
         # Check if feedback exists in the new table
         feedback = Session.query(ConversationFeedback).filter_by(conversation_id=conversation_id).first()
         
+        logger.info(f"Getting feedback for conversation {conversation_id}")
+        
         if feedback:
             try:
+                # Get challenging words if available
+                challenging_words = []
+                if feedback.challenging_words:
+                    try:
+                        logger.info(f"Parsing challenging words from: {feedback.challenging_words}")
+                        challenging_words = json.loads(feedback.challenging_words)
+                        logger.info(f"Found {len(challenging_words)} challenging words")
+                        
+                        # Format challenging words for display in a table with save button
+                        for word in challenging_words:
+                            # Make sure all required fields exist
+                            word['icelandic'] = word.get('icelandic', '')
+                            word['english'] = word.get('english', '')
+                            word['part_of_speech'] = word.get('part_of_speech', '')
+                            word['note'] = word.get('note', '')
+                            # Add a flag to indicate these words can be saved to library
+                            word['can_save_to_library'] = True
+                    except json.JSONDecodeError:
+                        logger.error(f"JSON decode error when retrieving challenging words")
+                        challenging_words = []
+                else:
+                    logger.info("No challenging words found in feedback")
+                
                 # Return the feedback from the new table
-                return jsonify({
+                response_data = {
                     "feedback_summary": feedback.feedback_summary,
                     "main_strengths": json.loads(feedback.main_strengths) if feedback.main_strengths else [],
                     "areas_to_improve": json.loads(feedback.areas_to_improve) if feedback.areas_to_improve else [],
@@ -1647,8 +1786,17 @@ def get_conversation_feedback(conversation_id):
                     "vocabulary_score": feedback.vocabulary_score,
                     "overall_score": feedback.overall_score,
                     "conversation_id": conversation_id,
-                    "created_at": feedback.created_at.isoformat() if feedback.created_at else None
-                }), 200
+                    "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
+                    "challenging_words": challenging_words,
+                    "challenging_words_table": {
+                        "title": "Words You Struggled With",
+                        "description": "These are words you found challenging during the conversation. Click 'Save to Library' to add them to your flashcard collection.",
+                        "words": challenging_words
+                    }
+                }
+                
+                logger.info(f"Returning feedback with {len(challenging_words)} challenging words")
+                return jsonify(response_data), 200
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error when retrieving feedback: {str(e)}")
                 return jsonify({
@@ -1658,6 +1806,7 @@ def get_conversation_feedback(conversation_id):
         
         # Check if feedback exists in the old format (for backward compatibility)
         if conversation.overall_feedback:
+            logger.info(f"Using legacy feedback format for conversation {conversation_id}")
             try:
                 # Return the feedback from the conversation table
                 return jsonify({
@@ -1666,7 +1815,13 @@ def get_conversation_feedback(conversation_id):
                     "areas_to_improve": json.loads(conversation.areas_to_improve) if conversation.areas_to_improve else [],
                     "overall_score": conversation.overall_score,
                     "conversation_id": conversation_id,
-                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None
+                    "completed_at": conversation.completed_at.isoformat() if conversation.completed_at else None,
+                    "challenging_words": [],
+                    "challenging_words_table": {
+                        "title": "Words You Struggled With",
+                        "description": "No challenging words were identified for this conversation.",
+                        "words": []
+                    }
                 }), 200
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error when retrieving old feedback format: {str(e)}")
@@ -1678,6 +1833,7 @@ def get_conversation_feedback(conversation_id):
         # If no feedback exists, check if the conversation is completed
         if conversation.completed_at:
             # If completed but no feedback, suggest generating it
+            logger.info(f"Conversation {conversation_id} is completed but has no feedback")
             return jsonify({
                 "message": "Conversation is completed but no feedback is available. Try ending the conversation again to generate feedback.",
                 "conversation_id": conversation_id,
@@ -1685,6 +1841,7 @@ def get_conversation_feedback(conversation_id):
             }), 200
         else:
             # If not completed, return appropriate message
+            logger.info(f"Conversation {conversation_id} is not yet completed")
             return jsonify({
                 "message": "Conversation is not yet completed. End the conversation first to generate feedback.",
                 "conversation_id": conversation_id,
@@ -2209,6 +2366,149 @@ def test_google_tts():
             "message": f"Exception when testing Google TTS API: {str(e)}",
             "api_key_found": GOOGLE_API_KEY is not None
         }), 500
+
+@app.route('/users/<int:user_id>/save-challenging-word', methods=['POST'])
+def save_challenging_word(user_id):
+    """Save a challenging word from conversation feedback to user's flashcard library."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Extract word data
+        icelandic = data.get('icelandic')
+        english = data.get('english')
+        part_of_speech = data.get('part_of_speech')
+        note = data.get('note')
+        topic = data.get('topic', 'Conversation Words')  # Default topic if none provided
+        
+        logger.info(f"Saving challenging word for user {user_id}: {icelandic} - {english}")
+
+        if not icelandic or not english:
+            return jsonify({"error": "Missing required fields: icelandic and english"}), 400
+
+        # Find or create library for conversation words
+        library = (Session.query(FlashcardLibrary)
+                  .filter_by(user_id=user_id, library_name=topic)
+                  .first())
+        
+        if not library:
+            logger.info(f"Creating new library: {topic}")
+            library = FlashcardLibrary(
+                user_id=user_id,
+                library_name=topic
+            )
+            Session.add(library)
+            Session.commit()  # Commit to get the library ID
+            logger.info(f"Created library with ID: {library.id}")
+
+        # Format additional info
+        additional_info = part_of_speech or ""
+        if note:
+            additional_info += ("; " if additional_info else "") + note
+
+        # Create new flashcard
+        new_card = Flashcard(
+            user_id=user_id,
+            library_id=library.id,
+            front_text=english,  # English on front
+            back_text=icelandic,  # Icelandic on back
+            additional_info=additional_info,
+            next_repetition_space=1,  # Initial repetition space is 1 day
+            next_practice_time=func.now()  # Initial practice time is now (immediately available)
+        )
+        
+        Session.add(new_card)
+        Session.commit()
+        logger.info(f"Successfully saved challenging word to flashcard with ID: {new_card.id}")
+        
+        return jsonify({
+            "message": "Word saved to flashcard library successfully",
+            "flashcard_id": new_card.id,
+            "library_name": topic
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error saving challenging word: {str(e)}")
+        Session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/conversation_feedback/<conversation_id>', methods=['GET'])
+def get_conversation_feedback_by_id(conversation_id):
+    try:
+        # Log the request parameters for debugging
+        logger.info(f"Getting feedback for conversation_id: {conversation_id}")
+        
+        # Query the feedback from the database
+        feedback = Session.query(ConversationFeedback).filter_by(
+            conversation_id=conversation_id
+        ).first()
+        
+        if not feedback:
+            logger.warning(f"No feedback found for conversation: {conversation_id}")
+            return jsonify({"error": "No feedback found for this conversation"}), 404
+        
+        logger.info(f"Found feedback for conversation: {conversation_id}")
+        
+        # Parse the JSON stored in the database
+        main_strengths = json.loads(feedback.main_strengths) if feedback.main_strengths else []
+        areas_to_improve = json.loads(feedback.areas_to_improve) if feedback.areas_to_improve else []
+        
+        # Process challenging words - handle both formats for compatibility
+        challenging_words = []
+        challenging_words_table = None
+        
+        if feedback.challenging_words:
+            try:
+                logger.info(f"Raw challenging_words from DB: {feedback.challenging_words}")
+                challenging_words = json.loads(feedback.challenging_words)
+                logger.info(f"Successfully parsed challenging_words: found {len(challenging_words)} words")
+                
+                # Log each challenging word for debugging
+                for i, word in enumerate(challenging_words):
+                    logger.info(f"Word {i+1}: {word}")
+                
+                # Create the table format for backward compatibility
+                challenging_words_table = {
+                    "headers": ["Icelandic", "English", "Part of Speech", "Notes"],
+                    "rows": []
+                }
+                
+                for word in challenging_words:
+                    row = [
+                        word.get("icelandic", ""),
+                        word.get("english", ""),
+                        word.get("part_of_speech", ""),
+                        word.get("note", "")
+                    ]
+                    challenging_words_table["rows"].append(row)
+                
+                logger.info(f"Created challenging_words_table with {len(challenging_words_table['rows'])} rows")
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing challenging_words JSON: {str(e)}")
+                challenging_words = []
+        else:
+            logger.warning("No challenging_words found in feedback")
+        
+        # Construct the response
+        response = {
+            "feedback_summary": feedback.feedback_summary,
+            "main_strengths": main_strengths,
+            "areas_to_improve": areas_to_improve,
+            "grammar_score": feedback.grammar_score,
+            "vocabulary_score": feedback.vocabulary_score,
+            "overall_score": feedback.overall_score,
+            "challenging_words": challenging_words,  # Raw format (new clients)
+            "challenging_words_table": challenging_words_table  # Table format (legacy clients)
+        }
+        
+        logger.info(f"Returning feedback response with {len(challenging_words)} challenging words")
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Error in get_conversation_feedback_by_id: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 # ---------------------------
 # Main Entry Point

@@ -1457,4 +1457,104 @@ code, pre {
   background-color: #5DADE2;
   color: white;
   border-color: #5DADE2;
+}
+
+/* Challenging words section in the feedback modal */
+.feedback-challenging-words {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.feedback-challenging-words h3 {
+  font-size: 18px;
+  color: #333;
+  margin-bottom: 15px;
+}
+
+.words-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 15px;
+}
+
+.word-card {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.word-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.word-content {
+  padding: 15px;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.word-icelandic {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2c5282;
+  margin-bottom: 8px;
+}
+
+.word-english {
+  font-size: 16px;
+  color: #4a5568;
+  margin-bottom: 8px;
+}
+
+.word-part-speech {
+  font-size: 14px;
+  color: #718096;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.word-note {
+  font-size: 14px;
+  color: #718096;
+  line-height: 1.4;
+  margin-bottom: 0;
+}
+
+.word-add-button {
+  background-color: #4285f4;
+  color: white;
+  font-weight: 500;
+  padding: 10px 0;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  margin: 0;
+  transition: background-color 0.2s;
+  text-align: center;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 0;
+}
+
+.word-add-button:hover {
+  background-color: #2a75f3;
+}
+
+.all-words-added {
+  text-align: center;
+  color: #38a169;
+  font-style: italic;
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #f0fff4;
+  border-radius: 8px;
+  border: 1px solid #c6f6d5;
 } 
