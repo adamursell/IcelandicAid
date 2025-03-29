@@ -22,11 +22,12 @@ const Flashcard = ({ card }) => {
       <div className={`flashcard ${flipped ? 'flipped' : ''}`} onClick={handleFlip}>
         <div className="flashcard-inner">
           <div className="flashcard-front">
+            {/* Front shows English text */}
             <h3>{card.front}</h3>
             {card.additional_info && (
               <div className="additional-info">{card.additional_info}</div>
             )}
-            {/* Pronunciation button on front */}
+            {/* Pronunciation button on front (English) */}
             <div style={{ 
               position: 'absolute', 
               bottom: '10px', 
@@ -37,8 +38,9 @@ const Flashcard = ({ card }) => {
             </div>
           </div>
           <div className="flashcard-back">
+            {/* Back shows Icelandic text */}
             <h3>{card.back}</h3>
-            {/* Pronunciation button on back */}
+            {/* Pronunciation button on back (Icelandic) */}
             <div style={{ 
               position: 'absolute', 
               bottom: '10px', 

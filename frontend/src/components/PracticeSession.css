@@ -1,0 +1,316 @@
+.practice-session-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+}
+
+.practice-session-container h2 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 30px;
+}
+
+.practice-content {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Card count and progress bar */
+.card-count {
+  text-align: center;
+  color: #333;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  width: 100%;
+  padding: 5px 0;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 10px;
+  background-color: #e9ecef;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 25px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #dee2e6;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: #4285f4;
+  background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+  background-size: 1rem 1rem;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+  animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+  from { background-position: 1rem 0; }
+  to { background-position: 0 0; }
+}
+
+/* Score display */
+.score-display {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 25px;
+  gap: 40px; /* Increased for more symmetrical spacing */
+}
+
+.score-display .correct,
+.score-display .incorrect {
+  padding: 8px 15px;
+  border-radius: 6px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  min-width: 130px;
+  text-align: center;
+}
+
+.score-display .correct {
+  color: #28a745;
+  background-color: rgba(40, 167, 69, 0.1);
+  border: 1px solid rgba(40, 167, 69, 0.2);
+}
+
+.score-display .incorrect {
+  color: #dc3545;
+  background-color: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+/* Practice card */
+.practice-card {
+  width: 100%;
+  height: 250px;
+  position: relative;
+  perspective: 1000px;
+  margin-bottom: 50px;
+  cursor: pointer;
+}
+
+.practice-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+  border-radius: 10px;
+}
+
+.practice-card.flipped .practice-card-inner {
+  transform: rotateY(180deg);
+}
+
+.practice-card-front,
+.practice-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
+  color: #212529;
+}
+
+.practice-card-front {
+  z-index: 2;
+}
+
+.practice-card-back {
+  transform: rotateY(180deg);
+  z-index: 1;
+}
+
+.practice-card-front h3,
+.practice-card-back h3 {
+  font-size: 24px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.practice-card-front .additional-info,
+.practice-card-back .additional-info {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+  margin-top: 10px;
+}
+
+.practice-card-front .tap-to-flip,
+.practice-card-back .tap-to-flip {
+  position: absolute;
+  bottom: 15px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #888;
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* Button container */
+.button-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 30px;
+  max-width: 100%; /* Match card width exactly */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dont-know-btn,
+.know-it-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  font-size: 14px;
+  cursor: pointer;
+  width: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.dont-know-btn {
+  background-color: #dc3545;
+  color: white;
+}
+
+.dont-know-btn:hover {
+  background-color: #c82333;
+}
+
+.know-it-btn {
+  background-color: #28a745;
+  color: white;
+}
+
+.know-it-btn:hover {
+  background-color: #218838;
+}
+
+/* End session button - cleaner look */
+.end-session-btn {
+  display: block;
+  margin: 0 auto;
+  padding: 10px 0;
+  width: 100%;
+  max-width: 300px;
+  text-align: center;
+  background-color: #f8f9fa;
+  color: #495057;
+  border: 1px solid #ced4da;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.end-session-btn:hover {
+  background-color: #e9ecef;
+}
+
+/* Loading, error and other states */
+.loading,
+.error,
+.practice-complete,
+.empty-message {
+  text-align: center;
+  margin: 50px 0;
+  padding: 20px;
+  border-radius: 5px;
+}
+
+.loading {
+  color: #666;
+}
+
+.loader {
+  border: 5px solid #f3f3f3;
+  border-radius: 50%;
+  border-top: 5px solid #4285f4;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.practice-complete {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.empty-message {
+  background-color: #e2e3e5;
+  color: #383d41;
+}
+
+/* Pronunciation button */
+.pronunciation-wrapper {
+  margin-top: 20px;
+}
+
+/* Debug info */
+.debug-card-info {
+  margin-top: 20px;
+  font-size: 12px;
+  color: #666;
+  text-align: left;
+}
+
+/* Home button */
+.home-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #4285f4;
+  background-color: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .button-container {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .dont-know-btn, .know-it-btn {
+    width: 100%;
+    max-width: none;
+    margin-bottom: 10px;
+  }
+} 

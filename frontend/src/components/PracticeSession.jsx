@@ -3,6 +3,8 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import HomeButton from './HomeButton';
 import PronunciationButton from './PronunciationButton';
 import config from '../config';
+import './PracticeSession.css'; // We'll create this file next
+import axios from 'axios';
 
 const PracticeSession = () => {
   const location = useLocation();
@@ -11,14 +13,17 @@ const PracticeSession = () => {
   const userId = localStorage.getItem('userId');
   const [flashcards, setFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showBack, setShowBack] = useState(false);
-  const [userGuess, setUserGuess] = useState('');
+  const [isFlipped, setIsFlipped] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [sessionId, setSessionId] = useState(null);
   const [sessionParams, setSessionParams] = useState(null);
   const [error, setError] = useState(null);
-  const inputRef = useRef(null);
+  const [score, setScore] = useState({ correct: 0, incorrect: 0 });
+  const cardRef = useRef(null);
+  const [totalCards, setTotalCards] = useState(0);
+  const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Add component-level debugging
   console.log("PracticeSession component file loaded");
@@ -73,321 +78,315 @@ const PracticeSession = () => {
   }, [sessionParams, userId]);
 
   const fetchFlashcards = async () => {
-    if (!userId || !sessionParams) {
-      console.error('Missing required data:', { userId, sessionParams });
-      setLoading(false);
-      return;
-    }
+    setIsLoading(true);
+    setHasError(false);
     
     try {
-      setLoading(true);
-      const { topic, quantity, practiceMode } = sessionParams;
-      console.log('Starting practice session with:', { topic, quantity, practiceMode });
+      let endpoint = '';
+      let response = null;
       
-      // Add API URL debugging
-      console.log('API URL from config:', config.API_URL);
-      
-      // Test if API is reachable
-      try {
-        const testResponse = await fetch(`${config.API_URL}/health`, { 
-          method: 'GET',
-          mode: 'cors'
-        });
-        console.log('API health check response:', { status: testResponse.status, ok: testResponse.ok });
-      } catch (healthError) {
-        console.error('API health check failed:', healthError);
-      }
-      
-      // Start a new practice session
-      console.log("Attempting to start practice session");
-      const sessionUrl = `${config.API_URL}/users/${userId}/practice-sessions/start`;
-      console.log("Session API URL:", sessionUrl);
-      
-      try {
-        const sessionResponse = await fetch(sessionUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            practice_type: practiceMode === 'spaced' ? 'flashcard' : 'flashcard',
-            session_data: {
-              topic,
-              quantity,
-              practice_mode: practiceMode
-            }
-          }),
-        });
-        
-        if (sessionResponse.ok) {
-          const sessionData = await sessionResponse.json();
-          console.log('Practice session started:', sessionData);
-          setSessionId(sessionData.session_id);
-        } else {
-          console.error('Failed to start practice session:', await sessionResponse.text());
+      if (sessionParams.practiceMode === 'spaced') {
+        // For spaced repetition mode
+        endpoint = `${config.API_URL}/users/${userId}/spaced-practice`;
+        if (sessionParams.topic !== 'all') {
+          endpoint += `?topic=${encodeURIComponent(sessionParams.topic)}`;
         }
-      } catch (sessionError) {
-        console.error('Error starting practice session:', sessionError);
-        // Continue anyway - session ID is not critical
-      }
-      
-      // Construct the API URL based on practice mode
-      const apiUrl = practiceMode === 'spaced'
-        ? `${config.API_URL}/users/${userId}/spaced-practice?topic=${topic}`
-        : `${config.API_URL}/users/${userId}/practice?topic=${topic}&num_flashcards=${quantity}`;
-      
-      console.log('Fetching flashcards from:', apiUrl);
-      
-      try {
-        const response = await fetch(apiUrl);
+        console.log("Fetching spaced flashcards from:", endpoint);
+        response = await axios.get(endpoint);
         
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Failed to fetch flashcards:', errorText);
-          setError(`Server error: ${response.status} ${response.statusText}`);
-          setLoading(false);
-          return;
-        }
+        console.log("API response for spaced flashcards:", response.data);
         
-        const data = await response.json();
-        console.log('Received flashcards:', data);
-        
-        if (!data.flashcards || data.flashcards.length === 0) {
-          console.log('No flashcards available');
-          setIsComplete(true);
-        } else {
-          console.log(`Loaded ${data.flashcards.length} flashcards`);
-          setFlashcards(data.flashcards);
-        }
-      } catch (fetchError) {
-        console.error('Error fetching flashcards:', fetchError);
-        setError(`Network error: ${fetchError.message}`);
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('Unexpected error in fetchFlashcards:', error);
-      setError(`General error: ${error.message}`);
-      setLoading(false);
-    }
-  };
-
-  const handleGuessSubmit = (e) => {
-    e.preventDefault();
-    setShowBack(true);
-  };
-
-  const handleKeepPracticing = async () => {
-    // For simple practice mode
-    if (sessionParams.practiceMode === 'simple') {
-      try {
-        const response = await fetch(`${config.API_URL}/users/${userId}/practice/next`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            current_card_id: flashcards[currentIndex].id,
-            topic: sessionParams.topic
-          }),
-        });
-        
-        if (response.ok) {
-          const nextCard = await response.json();
-          setFlashcards([...flashcards, nextCard]);
-        }
-      } catch (error) {
-        console.error('Error fetching next card:', error);
-      }
-      
-      setShowBack(false);
-      setUserGuess('');
-      setCurrentIndex(currentIndex + 1);
-      inputRef.current?.focus();
-    } 
-    // For spaced repetition mode - mark as incorrect
-    else {
-      try {
-        console.log(`Marking card ${flashcards[currentIndex].id} as incorrect`);
-        
-        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            current_card_id: flashcards[currentIndex].id,
-            is_correct: false
-          }),
-        });
-        
-        console.log(`Response status: ${response.status}`);
-        
-        if (response.ok) {
-          const nextCard = await response.json();
-          console.log(`Received next card with ID: ${nextCard.id}`);
+        // Process cards and add them to state
+        if (response.data && response.data.flashcards && response.data.flashcards.length > 0) {
+          // Log the raw API response for debugging
+          console.log("Raw API response structure:", {
+            hasFlashcards: !!response.data.flashcards,
+            flashcardsLength: response.data.flashcards.length,
+            firstCard: response.data.flashcards[0],
+            allCardKeys: response.data.flashcards.map(card => Object.keys(card))
+          });
           
-          // Move the current card to the end of the queue
-          const currentCard = flashcards[currentIndex];
-          
-          // Create a new array without the current card
-          const remainingFlashcards = flashcards.filter((_, index) => index !== currentIndex);
-          
-          // If the current card was marked incorrect, add it to the end
-          remainingFlashcards.push(currentCard);
-          
-          // If we received a different card, add it to the queue (if it's not already there)
-          if (nextCard.id !== currentCard.id && !remainingFlashcards.some(card => card.id === nextCard.id)) {
-            remainingFlashcards.push(nextCard);
-          }
-          
-          console.log(`Updated queue length: ${remainingFlashcards.length}`);
-          setFlashcards(remainingFlashcards);
-          
-          // Move to the next card (which is now at the current index since we removed the current card)
-          setCurrentIndex(currentIndex >= remainingFlashcards.length ? 0 : currentIndex);
-        } else {
-          const errorText = await response.text();
-          console.error('Error in spaced repetition practice:', errorText);
-          alert(`Error in spaced repetition practice: ${errorText}`);
-        }
-      } catch (error) {
-        console.error('Error in spaced repetition practice:', error);
-        alert(`Error in spaced repetition practice: ${error.message}`);
-      }
-      
-      setShowBack(false);
-      setUserGuess('');
-      inputRef.current?.focus();
-    }
-  };
-
-  const handleComplete = async () => {
-    // For simple practice mode
-    if (sessionParams.practiceMode === 'simple') {
-      if (currentIndex === flashcards.length - 1) {
-        setIsComplete(true);
-      } else {
-        setShowBack(false);
-        setUserGuess('');
-        setCurrentIndex(currentIndex + 1);
-        inputRef.current?.focus();
-      }
-    } 
-    // For spaced repetition mode - mark as correct
-    else {
-      try {
-        console.log(`Marking card ${flashcards[currentIndex].id} as correct`);
-        
-        const response = await fetch(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            current_card_id: flashcards[currentIndex].id,
-            is_correct: true
-          }),
-        });
-        
-        console.log(`Response status: ${response.status}`);
-        
-        if (response.status === 404) {
-          // No more cards available
-          console.log("No more cards available, completing session");
-          setIsComplete(true);
-          return;
-        } 
-        
-        if (response.ok) {
-          console.log("Successfully marked card as correct");
-          
-          // Remove the current card from the deck (it's completed for this session)
-          const remainingFlashcards = flashcards.filter((_, index) => index !== currentIndex);
-          console.log(`Remaining flashcards: ${remainingFlashcards.length}`);
-          
-          if (remainingFlashcards.length === 0) {
-            // If that was the last card, we're done
-            console.log("No more flashcards in the current session, completing");
-            setIsComplete(true);
-          } else {
-            // Otherwise, continue with remaining cards
-            const newIndex = currentIndex >= remainingFlashcards.length ? 0 : currentIndex;
-            console.log(`Setting new index to ${newIndex}`);
+          // Make sure each card has front and back properties
+          const formattedCards = response.data.flashcards.map((card, index) => {
+            // Log detailed card data
+            console.log(`Card ${index + 1}:`, card);
             
-            setFlashcards(remainingFlashcards);
-            setCurrentIndex(newIndex);
-            setShowBack(false);
-            setUserGuess('');
-            inputRef.current?.focus();
-          }
+            // Try to extract the values using the correct property names
+            // The API is using 'front' and 'back' properties, not 'front_text' and 'back_text'
+            const frontText = String(card.front || card.front_text || "");
+            const backText = String(card.back || card.back_text || "");
+            
+            console.log(`Card ${index + 1} extracted:`, { frontText, backText });
+            
+            return {
+              id: card.id,
+              front: frontText,
+              back: backText,
+              additional_info: card.additional_info || '',
+              next_repetition_space: card.next_repetition_space,
+              // Store raw data for debugging
+              _raw: { ...card }
+            };
+          });
+          
+          console.log("Final formatted cards:", formattedCards);
+          setFlashcards(formattedCards);
+          setSessionId(response.data.session_id);
+          setTotalCards(formattedCards.length);
         } else {
-          const errorText = await response.text();
-          console.error('Error updating flashcard:', errorText);
-          alert(`Error updating flashcard: ${errorText}`);
+          console.log("No flashcards in response or empty array:", {
+            hasData: !!response.data,
+            hasFlashcards: !!(response.data && response.data.flashcards),
+            length: response.data?.flashcards?.length || 0
+          });
+          setFlashcards([]);
+          setTotalCards(0);
         }
-      } catch (error) {
-        console.error('Error in spaced repetition practice:', error);
-        alert(`Error in spaced repetition practice: ${error.message}`);
+      } else {
+        // For simple practice mode
+        endpoint = `${config.API_URL}/users/${userId}/practice`;
+        const params = new URLSearchParams();
+        
+        if (sessionParams.topic !== 'all') {
+          params.append('topic', sessionParams.topic);
+        }
+        
+        if (sessionParams.quantity && !isNaN(sessionParams.quantity)) {
+          params.append('num_flashcards', sessionParams.quantity);
+        }
+        
+        if (params.toString()) {
+          endpoint += `?${params.toString()}`;
+        }
+        
+        console.log("Fetching regular flashcards from:", endpoint);
+        response = await axios.get(endpoint);
+        console.log("API response for regular flashcards:", response.data);
+        
+        if (response.data && response.data.flashcards && response.data.flashcards.length > 0) {
+          // Log the raw API response for debugging
+          console.log("Raw API response structure:", {
+            hasFlashcards: !!response.data.flashcards,
+            flashcardsLength: response.data.flashcards.length,
+            firstCard: response.data.flashcards[0],
+            allCardKeys: response.data.flashcards.map(card => Object.keys(card))
+          });
+          
+          // Make sure each card has front and back properties
+          const formattedCards = response.data.flashcards.map((card, index) => {
+            // Log detailed card data
+            console.log(`Card ${index + 1}:`, card);
+            
+            // Try to extract the values using the correct property names
+            // The API is using 'front' and 'back' properties, not 'front_text' and 'back_text'
+            const frontText = String(card.front || card.front_text || "");
+            const backText = String(card.back || card.back_text || "");
+            
+            console.log(`Card ${index + 1} extracted:`, { frontText, backText });
+            
+            return {
+              id: card.id,
+              front: frontText,
+              back: backText,
+              additional_info: card.additional_info || '',
+              // Store raw data for debugging
+              _raw: { ...card }
+            };
+          });
+          
+          console.log("Final formatted cards:", formattedCards);
+          setFlashcards(formattedCards);
+          setSessionId(response.data.session_id);
+          setTotalCards(formattedCards.length);
+        } else {
+          console.log("No flashcards in response or empty array:", {
+            hasData: !!response.data,
+            hasFlashcards: !!(response.data && response.data.flashcards),
+            length: response.data?.flashcards?.length || 0
+          });
+          setFlashcards([]);
+          setTotalCards(0);
+        }
       }
+    } catch (error) {
+      console.error('Error fetching flashcards:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      setHasError(true);
+      setErrorMessage(`Failed to load flashcards: ${error.message}`);
+    } finally {
+      console.log("Setting isLoading to false");
+      setIsLoading(false);
+    }
+  };
+
+  const handleCardFlip = () => {
+    setIsFlipped(!isFlipped);
+  };
+
+  const markAsKnown = async () => {
+    if (currentIndex >= flashcards.length) return;
+    
+    try {
+      // Update the score
+      setScore({ ...score, correct: score.correct + 1 });
+      
+      const currentCard = flashcards[currentIndex];
+      
+      // For spaced repetition mode, update the card's spacing
+      if (sessionParams.practiceMode === 'spaced') {
+        // Call the API to update the spaced repetition status
+        await axios.post(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
+          session_id: sessionId,
+          flashcard_id: currentCard.id,
+          known: true
+        });
+      }
+      
+      // Move to the next card
+      moveToNextCard();
+    } catch (error) {
+      console.error('Error marking card as known:', error);
+    }
+  };
+
+  const markAsUnknown = async () => {
+    if (currentIndex >= flashcards.length) return;
+    
+    try {
+      // Update the score
+      setScore({ ...score, incorrect: score.incorrect + 1 });
+      
+      const currentCard = flashcards[currentIndex];
+      
+      // For spaced repetition mode, update the card's spacing
+      if (sessionParams.practiceMode === 'spaced') {
+        // Call the API to update the spaced repetition status
+        await axios.post(`${config.API_URL}/users/${userId}/spaced-practice/next`, {
+          session_id: sessionId,
+          flashcard_id: currentCard.id,
+          known: false
+        });
+      }
+      
+      // Move to the next card
+      moveToNextCard();
+    } catch (error) {
+      console.error('Error marking card as unknown:', error);
+    }
+  };
+
+  const moveToNextCard = () => {
+    // Reset the flip state
+    setIsFlipped(false);
+    
+    // Move to the next card
+    if (currentIndex + 1 < flashcards.length) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // All cards have been reviewed
+      handleSessionCompletion();
+    }
+  };
+
+  const handleSessionCompletion = () => {
+    setIsComplete(true);
+    
+    // Complete the practice session in the backend
+    if (sessionId) {
+      completePracticeSession();
+    }
+  };
+
+  const completePracticeSession = async () => {
+    try {
+      await axios.post(`${config.API_URL}/users/${userId}/practice-sessions/${sessionId}/complete`, {
+        correct: score.correct,
+        incorrect: score.incorrect
+      });
+    } catch (error) {
+      console.error('Error completing practice session:', error);
     }
   };
 
   const handleEndSession = () => {
-    // Complete the practice session if it's not already completed
-    if (sessionId && !isComplete) {
-      completePracticeSession();
-    }
-    navigate('/');
-  };
-
-  // Function to complete the practice session and update streak
-  const completePracticeSession = async () => {
-    if (!sessionId) return;
-    
-    try {
-      const response = await fetch(`${config.API_URL}/users/${userId}/practice-sessions/${sessionId}/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`Practice session completed. Current streak: ${data.current_streak}`);
-      }
-    } catch (error) {
-      console.error('Error completing practice session:', error);
+    // Remove the confirmation dialog
+    // Simply end the session or navigate home
+    if (isComplete) {
+      // If session is already complete, just navigate home
+      navigate('/home');
+    } else {
+      // Otherwise mark the session as complete first
+      handleSessionCompletion();
+      // Then navigate home
+      navigate('/home');
     }
   };
 
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
-      setShowBack(false);
-      setUserGuess('');
-      inputRef.current?.focus();
+      setIsFlipped(false);
     }
-  };
-
-  const handleFlip = () => {
-    setShowBack(!showBack);
   };
 
   const handleNext = () => {
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(currentIndex + 1);
-      setShowBack(false);
-      setUserGuess('');
-      inputRef.current?.focus();
+      setIsFlipped(false);
     } else {
       setIsComplete(true);
     }
   };
 
-  if (loading) {
-    return <div className="loading">Loading flashcards...</div>;
+  // Render function to display the current flashcard
+  const renderFlashcard = () => {
+    if (!flashcards.length) return null;
+    
+    const currentCard = flashcards[currentIndex];
+    
+    if (!currentCard) {
+      return <div className="empty-message">No content available.</div>;
+    }
+
+    return (
+      <div 
+        className={`practice-card ${isFlipped ? 'flipped' : ''}`} 
+        onClick={handleCardFlip}
+      >
+        <div className="practice-card-inner">
+          <div className="practice-card-front">
+            <h3>{currentCard.front || 'No front content'}</h3>
+            {currentCard.additional_info && (
+              <div className="additional-info">{currentCard.additional_info}</div>
+            )}
+            <div className="tap-to-flip">Tap to flip</div>
+          </div>
+          <div className="practice-card-back">
+            <h3>{currentCard.back || 'No back content'}</h3>
+            <div className="pronunciation-wrapper">
+              <PronunciationButton text={currentCard.back || ""} />
+            </div>
+            <div className="tap-to-flip">Tap to flip</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="practice-session-container">
+        <HomeButton />
+        <div className="loading">
+          <div className="loader"></div>
+          <p>Loading flashcards...</p>
+        </div>
+      </div>
+    );
   }
 
   if (isComplete) {
@@ -398,59 +397,67 @@ const PracticeSession = () => {
     }
     
     return (
-      <div className="practice-complete">
-        <h2>Practice Session Complete!</h2>
-        <p>
-          {sessionParams?.practiceMode === 'spaced' 
-            ? "You've completed all your due flashcards for today." 
-            : "You've completed this practice session."}
-        </p>
-        <button onClick={handleEndSession}>Return Home</button>
+      <div className="practice-session-container">
+        <HomeButton />
+        <div className="practice-complete">
+          <h2>Practice Session Complete!</h2>
+          <div className="practice-stats">
+            <div className="stat-item">
+              <span className="stat-value correct">{score.correct}</span>
+              <span className="stat-label">Correct</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value incorrect">{score.incorrect}</span>
+              <span className="stat-label">Incorrect</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value total">{score.correct + score.incorrect}</span>
+              <span className="stat-label">Total Cards</span>
+            </div>
+          </div>
+          <p>
+            {sessionParams?.practiceMode === 'spaced' 
+              ? "You've completed all your due flashcards for today." 
+              : "You've completed this practice session."}
+          </p>
+          <button onClick={() => navigate('/home')} className="action-button primary">Return Home</button>
+        </div>
       </div>
     );
   }
 
   if (flashcards.length === 0) {
     return (
-      <div className="practice-complete">
-        <h2>No Flashcards Available</h2>
-        <p>
-          {sessionParams?.practiceMode === 'spaced' 
-            ? "You don't have any flashcards due for practice today." 
-            : "No flashcards are available for practice."}
-        </p>
-        <button onClick={handleEndSession}>Return Home</button>
+      <div className="practice-session-container">
+        <HomeButton />
+        <div className="practice-complete">
+          <h2>No Flashcards Available</h2>
+          <p>
+            {sessionParams?.practiceMode === 'spaced' 
+              ? "You don't have any flashcards due for practice today." 
+              : "No flashcards are available for practice."}
+          </p>
+          <button onClick={handleEndSession} className="action-button primary">Return Home</button>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="practice-session">
+      <div className="practice-session-container">
         <HomeButton />
         <h2>Practice Session Error</h2>
-        <div className="error-container" style={{ 
-          border: '1px solid #f44336',
-          borderRadius: '4px',
-          padding: '20px',
-          margin: '20px 0',
-          backgroundColor: '#ffebee'
-        }}>
+        <div className="error-container">
           <h3>Something went wrong</h3>
           <p>{error}</p>
-          <div style={{ marginTop: '20px' }}>
+          <div className="error-actions">
             <button onClick={() => navigate('/practice/setup')}>
               Return to Practice Setup
             </button>
           </div>
         </div>
-        <div className="debug-info" style={{ 
-          marginTop: '30px',
-          padding: '10px',
-          backgroundColor: '#f5f5f5',
-          borderRadius: '4px',
-          fontSize: '12px'
-        }}>
+        <div className="debug-info">
           <h4>Debug Information</h4>
           <pre>{JSON.stringify({
             userId: userId ? 'exists' : 'missing',
@@ -463,77 +470,67 @@ const PracticeSession = () => {
     );
   }
 
-  const currentCard = flashcards[currentIndex];
-
   return (
-    <div className="practice-session">
+    <div className="practice-session-container">
       <HomeButton />
-      <div className="practice-info">
-        <div className="cards-info">
-          <p>Cards remaining: {flashcards.length - currentIndex}</p>
+      <h2>Flashcards</h2>
+      {isLoading ? (
+        <div className="loading">
+          <div className="loader"></div>
+          <p>Loading flashcards...</p>
         </div>
-      </div>
-      
-      <div className="flashcard">
-        <div className="card-content">
-          <h3>Front:</h3>
-          <p>{currentCard.front}</p>
+      ) : error ? (
+        <div className="error">{error}</div>
+      ) : flashcards.length === 0 ? (
+        <div className="empty-message">No flashcards available for practice.</div>
+      ) : isComplete ? (
+        <div className="practice-complete">
+          <h3>Practice Complete!</h3>
+          <p>You've completed this practice session.</p>
+          <p>Correct: {score.correct} | Incorrect: {score.incorrect}</p>
+          <button onClick={() => navigate('/home')} className="end-session-btn">
+            Return to Flashcard Sets
+          </button>
+        </div>
+      ) : (
+        <div className="practice-content">
+          <div className="card-count">
+            Card {currentIndex + 1} of {flashcards.length}
+          </div>
+          <div className="progress-bar-container">
+            <div 
+              className="progress-bar" 
+              style={{ width: `${((currentIndex) / flashcards.length) * 100}%` }}
+            ></div>
+          </div>
           
-          <form onSubmit={handleGuessSubmit}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={userGuess}
-              onChange={(e) => setUserGuess(e.target.value)}
-              placeholder="Type your answer..."
-              disabled={showBack}
-              autoFocus
-            />
-            {!showBack && (
-              <button type="submit">Show Answer</button>
-            )}
-          </form>
-
-          {showBack && (
-            <div className="answer-section">
-              <div className="user-guess">
-                <h4>Your Answer:</h4>
-                <p>{userGuess}</p>
-              </div>
-              <div className="correct-answer">
-                <h4>Correct Answer:</h4>
-                <p>{currentCard.back}</p>
-                
-                <div style={{ 
-                  margin: '10px 0', 
-                  display: 'flex', 
-                  justifyContent: 'center' 
-                }}>
-                  <PronunciationButton text={currentCard.back} />
-                </div>
-              </div>
-              <div className="button-group">
-                <button 
-                  onClick={handleKeepPracticing}
-                  className="keep-practicing-btn"
-                >
-                  {sessionParams?.practiceMode === 'spaced' ? "Incorrect" : "Keep Practicing"}
-                </button>
-                <button 
-                  onClick={handleComplete}
-                  className="complete-btn"
-                >
-                  {sessionParams?.practiceMode === 'spaced' ? "Correct" : "Complete"}
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="score-display">
+            <div className="correct">Correct: {score.correct}</div>
+            <div className="incorrect">Incorrect: {score.incorrect}</div>
+          </div>
+          
+          {renderFlashcard()}
+          
+          <div className="button-container">
+            <button 
+              className="dont-know-btn" 
+              onClick={() => markAsUnknown()}
+            >
+              ✗ Don't Know
+            </button>
+            <button 
+              className="know-it-btn" 
+              onClick={() => markAsKnown()}
+            >
+              ✓ Know It
+            </button>
+          </div>
+          
+          <button onClick={handleEndSession} className="end-session-btn">
+            End Session
+          </button>
         </div>
-      </div>
-      
-      <button className="end-session" onClick={handleEndSession}>
-        End Session
-      </button>
+      )}
     </div>
   );
 };
