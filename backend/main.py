@@ -3,7 +3,7 @@ import json
 import logging
 import sys
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timedelta
 import requests
 import urllib.parse
+from functools import wraps
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -66,7 +67,7 @@ else:
 # ---------------------------
 from sqlalchemy import create_engine, func, desc, or_, and_, distinct, Column, String, Integer, Float, ForeignKey, DateTime, Boolean, Text
 from sqlalchemy.orm import sessionmaker, scoped_session
-from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base
+from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analytics, Conversation, ConversationMessage, ConversationFeedback, PracticeStreak, PracticeSession, Base, Feedback
 
 # Database configuration
 # Check if DATABASE_URL is provided (common in cloud environments like Render)
@@ -2509,6 +2510,59 @@ def get_conversation_feedback_by_id(conversation_id):
     except Exception as e:
         logger.error(f"Error in get_conversation_feedback_by_id: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/submit-feedback', methods=['POST'])
+def submit_feedback():
+    try:
+        # Get the data from the request
+        data = request.json
+        
+        if not data or not isinstance(data, dict):
+            return jsonify({'success': False, 'message': 'Invalid request data'}), 400
+            
+        # Extract data from the request
+        user_id = data.get('userId', 'anonymous')
+        feedback_type = data.get('feedbackType', '')
+        feedback_text = data.get('feedbackText', '')
+        
+        if not feedback_type or not feedback_text:
+            return jsonify({'success': False, 'message': 'Missing required fields'}), 400
+        
+        print(f"Received feedback - Type: {feedback_type}, Text: {feedback_text}, User: {user_id}")
+        
+        # Get database connection
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from models import Feedback, Base
+        
+        # Create the table if it doesn't exist
+        engine = create_engine('sqlite:///icelandic_learning.db')
+        Base.metadata.create_all(engine, tables=[Feedback.__table__])
+        
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        
+        try:
+            # Create new feedback record
+            new_feedback = Feedback(
+                user_id=user_id,
+                feedback_type=feedback_type,
+                feedback_text=feedback_text
+            )
+            
+            # Save to database
+            db.add(new_feedback)
+            db.commit()
+            
+            return jsonify({'success': True, 'message': 'Feedback submitted successfully'}), 200
+        finally:
+            db.close()
+    
+    except Exception as e:
+        import traceback
+        print(f"Error processing feedback: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'message': 'Server error processing feedback'}), 500
 
 # ---------------------------
 # Main Entry Point

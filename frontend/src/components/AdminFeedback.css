@@ -1,0 +1,184 @@
+.admin-feedback-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.admin-feedback-container h1 {
+  color: #3498db;
+  margin-bottom: 20px;
+}
+
+.admin-loading {
+  text-align: center;
+  padding: 40px;
+  font-size: 18px;
+  color: #666;
+}
+
+.admin-error {
+  text-align: center;
+  padding: 40px;
+  color: #e74c3c;
+}
+
+.admin-error button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.admin-filters {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.admin-filters h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #2c3e50;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.filter-group {
+  flex: 1;
+  min-width: 200px;
+}
+
+.filter-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #555;
+}
+
+.filter-group select,
+.filter-group input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.filter-buttons button {
+  padding: 8px 15px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-buttons button:hover {
+  background-color: #2980b9;
+}
+
+.filter-buttons button:last-child {
+  background-color: #95a5a6;
+}
+
+.filter-buttons button:last-child:hover {
+  background-color: #7f8c8d;
+}
+
+.feedback-stats {
+  margin-bottom: 20px;
+  font-size: 16px;
+}
+
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.feedback-item {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.feedback-header {
+  background-color: #f8f9fa;
+  padding: 10px 15px;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #ddd;
+}
+
+.feedback-type {
+  font-weight: bold;
+  color: #3498db;
+}
+
+.feedback-date {
+  color: #7f8c8d;
+  font-size: 14px;
+}
+
+.feedback-content {
+  padding: 15px;
+  background-color: white;
+}
+
+.feedback-content p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.feedback-user {
+  padding: 8px 15px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #ddd;
+  font-size: 14px;
+  color: #7f8c8d;
+}
+
+.no-feedback {
+  text-align: center;
+  padding: 30px;
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+.back-button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.back-button:hover {
+  background-color: #2980b9;
+}
+
+@media (max-width: 768px) {
+  .filter-row {
+    flex-direction: column;
+  }
+  
+  .filter-group {
+    min-width: 100%;
+  }
+} 

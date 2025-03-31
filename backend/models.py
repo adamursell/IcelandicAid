@@ -153,3 +153,13 @@ class PracticeSession(Base):
     completed_at = Column(DateTime, nullable=True)
 
     user = relationship('User', foreign_keys=[user_id])
+
+
+class Feedback(Base):
+    __tablename__ = 'feedback'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), nullable=True)  # Can be 'anonymous'
+    feedback_type = Column(String(255), nullable=False)
+    feedback_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    

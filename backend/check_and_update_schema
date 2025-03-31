@@ -1,0 +1,11 @@
+def check_and_update_schema():
+    """Check and update the database schema if needed."""
+    from models import Base, Feedback  # Explicitly import Feedback
+    
+    # Your existing code
+    engine = create_engine('sqlite:///icelandic_learning.db')
+    Base.metadata.create_all(engine)
+    
+    # Make sure the new table is created
+    if not engine.dialect.has_table(engine.connect(), "feedback"):
+        Feedback.__table__.create(engine) 
