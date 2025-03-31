@@ -72,7 +72,12 @@ from models import User, FlashcardLibrary, Flashcard, FlashcardGeneration, Analy
 # Database configuration
 # Check if DATABASE_URL is provided (common in cloud environments like Render)
 if DATABASE_URL:
-    # Use the DATABASE_URL provided by Render
+    # Get SSL mode from environment, default to 'require' for production (Render)
+    ssl_mode = os.getenv("PGSSLMODE", "require")
+    
+    # Configure SSL based on environment
+    connect_args = {"sslmode": ssl_mode} if ssl_mode else {}
+    
     engine = create_engine(
         DATABASE_URL,
         echo=False,
@@ -80,16 +85,20 @@ if DATABASE_URL:
         max_overflow=10,
         pool_timeout=30,
         pool_recycle=1800,
-        connect_args={
-            "sslmode": "require"  # Required for Render.com PostgreSQL
-        }
+        connect_args=connect_args
     )
-    logger.info("Using PostgreSQL database from DATABASE_URL")
+    logger.info(f"Using PostgreSQL database from DATABASE_URL with SSL mode: {ssl_mode}")
 # Check if PostgreSQL environment variables are set, otherwise fall back to SQLite
 elif all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
     # URL encode the password to handle special characters
     encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
     db_url = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    
+    # Get SSL mode from environment, default to 'prefer' for local development
+    ssl_mode = os.getenv("PGSSLMODE", "prefer")
+    
+    # Configure SSL based on environment
+    connect_args = {"sslmode": ssl_mode} if ssl_mode else {}
     
     # PostgreSQL-specific engine configuration
     engine = create_engine(
@@ -99,11 +108,9 @@ elif all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
         max_overflow=10,  # Maximum number of connections to create above pool_size
         pool_timeout=30,  # Timeout for getting a connection from the pool
         pool_recycle=1800,  # Recycle connections after 30 minutes
-        connect_args={
-            "sslmode": "require"  # Required for Render.com PostgreSQL
-        }
+        connect_args=connect_args
     )
-    logger.info("Using PostgreSQL database from environment variables")
+    logger.info(f"Using PostgreSQL database from environment variables with SSL mode: {ssl_mode}")
 else:
     db_url = "sqlite:///AppDatabase.db"
     logger.warning("PostgreSQL environment variables not set, falling back to SQLite")
