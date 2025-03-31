@@ -2564,6 +2564,117 @@ def submit_feedback():
         print(traceback.format_exc())
         return jsonify({'success': False, 'message': 'Server error processing feedback'}), 500
 
+@app.route('/admin/feedback', methods=['GET'])
+def view_feedback():
+    try:
+        # Simple token check
+        admin_token = request.args.get('token')
+        if admin_token != '97f574c20ae895444a3b983e2973f191':
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        # Get all feedback entries
+        from sqlalchemy import desc
+        from models import Feedback
+        
+        # Use your existing database session pattern
+        # If you have db = get_db(), use that. Otherwise, create session directly:
+        
+        # For direct session approach:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        # Use same engine config as in your main application
+        if 'DATABASE_URL' in os.environ:
+            db_url = os.environ['DATABASE_URL']
+            # Fix for Heroku/Render Postgres URLs
+            if db_url.startswith('postgres://'):
+                db_url = db_url.replace('postgres://', 'postgresql://', 1)
+            engine = create_engine(db_url)
+        else:
+            engine = create_engine('sqlite:///icelandic_learning.db')
+            
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        
+        try:
+            feedback_entries = db.query(Feedback).order_by(desc(Feedback.created_at)).all()
+            
+            # Convert to dictionaries for display
+            feedback_list = []
+            for entry in feedback_entries:
+                feedback_list.append({
+                    'id': entry.id,
+                    'user_id': entry.user_id,
+                    'feedback_type': entry.feedback_type,
+                    'feedback_text': entry.feedback_text,
+                    'created_at': entry.created_at.isoformat() if entry.created_at else None
+                })
+            
+            # Generate HTML response
+            html = '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Feedback Dashboard</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+                    th { background-color: #4CAF50; color: white; }
+                    tr:nth-child(even) { background-color: #f2f2f2; }
+                    .container { max-width: 1200px; margin: 0 auto; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Feedback Dashboard</h1>
+            '''
+            
+            if not feedback_list:
+                html += '<p>No feedback entries found.</p>'
+            else:
+                html += f'<p>Total feedback entries: {len(feedback_list)}</p>'
+                html += '''
+                    <table>
+                        <tr>
+                            <th>ID</th>
+                            <th>User ID</th>
+                            <th>Type</th>
+                            <th>Text</th>
+                            <th>Date</th>
+                        </tr>
+                '''
+                
+                for entry in feedback_list:
+                    html += f'''
+                        <tr>
+                            <td>{entry["id"]}</td>
+                            <td>{entry["user_id"]}</td>
+                            <td>{entry["feedback_type"]}</td>
+                            <td>{entry["feedback_text"]}</td>
+                            <td>{entry["created_at"]}</td>
+                        </tr>
+                    '''
+                
+                html += '</table>'
+            
+            html += '''
+                </div>
+            </body>
+            </html>
+            '''
+            
+            return html
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        import traceback
+        print(f"Error retrieving feedback: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': 'Failed to retrieve feedback'}), 500
+
 # ---------------------------
 # Main Entry Point
 # ---------------------------
