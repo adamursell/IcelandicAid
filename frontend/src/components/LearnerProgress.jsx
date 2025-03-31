@@ -17,7 +17,6 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
   const [error, setError] = useState('');
   const [activeSection, setActiveSection] = useState('progress');
   const [dueFlashcards, setDueFlashcards] = useState(0);
-  const [practiceStreak, setPracticeStreak] = useState(0);
   const [activeGraph, setActiveGraph] = useState('overall');
 
   useEffect(() => {
@@ -36,9 +35,7 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
       const data = await response.json();
       setProgressData(data);
       
-      // Set the practice streak from the API response
       if (data.flashcards && data.flashcards.streak) {
-        setPracticeStreak(data.flashcards.streak.current);
         setDueFlashcards(data.flashcards.streak.due_today);
       }
       
@@ -338,15 +335,10 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
         </div>
         
         <div className="stats-header" style={{ justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
-          <div className="stat-box" style={{ flex: '0 1 calc(33% - 20px)', maxWidth: '300px' }}>
+          <div className="stat-box" style={{ flex: '0 1 calc(100%)', maxWidth: '300px' }}>
             <h3>&nbsp;</h3>
             <div className="stat-value" style={{ fontSize: '48px', color: '#5DADE2' }}>{conversation.total_conversations}</div>
             <div className="stat-label">Conversations practiced</div>
-          </div>
-          <div className="stat-box" style={{ flex: '0 1 calc(33% - 20px)', maxWidth: '300px' }}>
-            <h3>&nbsp;</h3>
-            <div className="stat-value" style={{ fontSize: '48px', color: '#5DADE2' }}>{conversation.streak?.current || 0}</div>
-            <div className="stat-label">Conversation practice streak</div>
           </div>
         </div>
 
@@ -425,7 +417,6 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
     console.log("Word types:", flashcards.word_types);
     console.log("Total topics:", flashcards.total_topics);
     console.log("Due flashcards:", dueFlashcards);
-    console.log("Practice streak:", practiceStreak);
 
     // Create a pie chart data from knowledge levels instead of bar chart
     const knowledgeLevelsPieData = {
@@ -460,10 +451,6 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
           <div className="stat-box large">
             <div className="stat-value">{dueFlashcards}</div>
             <div className="stat-label">Due for practice today</div>
-          </div>
-          <div className="stat-box large">
-            <div className="stat-value">{practiceStreak}</div>
-            <div className="stat-label">Day streak</div>
           </div>
         </div>
 

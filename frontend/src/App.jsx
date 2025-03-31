@@ -85,7 +85,7 @@ const App = () => {
           {/* Practice Routes - Make sure these are consistent */}
           <Route path="/practice" element={<Navigate to="/practice/setup" replace />} />
           <Route path="/practice/setup" element={<PracticeSetup />} />
-          <Route path="/practice-session" element={<PracticeSession />} />
+          <Route path="/practice/session" element={<PracticeSession />} />
           
           <Route 
             path="/conversation" 

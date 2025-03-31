@@ -900,18 +900,48 @@ def get_spaced_practice_flashcards(user_id):
     try:
         topic = request.args.get('topic', default=None, type=str)
         
+        # Get the current time to check against next_practice_time
+        current_time = datetime.now()
+        logger.info(f"Fetching spaced practice flashcards for user {user_id} at {current_time.isoformat()}")
+        
         # Base query joining Flashcard with FlashcardLibrary
         query = (Session.query(Flashcard)
                 .join(FlashcardLibrary)
                 .filter(FlashcardLibrary.user_id == user_id)
-                .filter(Flashcard.next_practice_time <= func.now()))  # Only cards due for practice
+                .filter(Flashcard.next_practice_time <= current_time))  # Only cards due for practice
+                
+        logger.info(f"SQL Query for spaced practice: {str(query)}")
         
         # If specific topic is requested (and it's not "all")
         if topic and topic.lower() != 'all':
             query = query.filter(FlashcardLibrary.library_name == topic)
+            logger.info(f"Added topic filter: {topic}")
+        
+        # Query all flashcards to check due status (for debugging)
+        all_flashcards = (Session.query(Flashcard)
+                         .join(FlashcardLibrary)
+                         .filter(FlashcardLibrary.user_id == user_id)
+                         .all())
+                         
+        logger.info(f"User {user_id} has {len(all_flashcards)} total cards")
+        
+        # Count how many are actually due
+        due_cards = [fc for fc in all_flashcards if fc.next_practice_time <= current_time]
+        logger.info(f"User {user_id} has {len(due_cards)} cards due for practice out of {len(all_flashcards)} total")
+        
+        # Log the first few cards' next practice times for debugging
+        for idx, fc in enumerate(all_flashcards[:10]):  # Log first 10 cards max
+            time_diff = (fc.next_practice_time - current_time).total_seconds() / 86400  # Convert to days
+            is_due = fc.next_practice_time <= current_time
+            logger.info(f"Card {idx+1}/{len(all_flashcards)}: id={fc.id}, " +
+                       f"next_practice_time={fc.next_practice_time.isoformat()}, " +
+                       f"is_due={is_due}, " +
+                       f"days_until_due={time_diff:.2f}, " +
+                       f"repetition_space={fc.next_repetition_space}")
         
         # Get total available cards for the query
         total_cards = query.count()
+        logger.info(f"Found {total_cards} cards due for practice for user {user_id}")
         
         # Get all due flashcards, ordered randomly
         flashcards = (query
@@ -919,21 +949,30 @@ def get_spaced_practice_flashcards(user_id):
                      .all())
         
         if not flashcards:
+            logger.info(f"No flashcards due for practice for user {user_id}")
             return jsonify({
                 "message": "No flashcards due for practice", 
                 "flashcards": [],
                 "total_available": 0
             }), 200
 
-        results = [{
-            "id": fc.id,
-            "front": fc.front_text,
-            "back": fc.back_text,
-            "additional_info": fc.additional_info,
-            "topic": Session.query(FlashcardLibrary).get(fc.library_id).library_name,
-            "next_repetition_space": fc.next_repetition_space
-        } for fc in flashcards]
+        # Build the response data with complete card information
+        results = []
+        for fc in flashcards:
+            days_until_due = (fc.next_practice_time - current_time).total_seconds() / 86400  # Convert to days
+            results.append({
+                "id": fc.id,
+                "front": fc.front_text,
+                "back": fc.back_text,
+                "additional_info": fc.additional_info,
+                "topic": Session.query(FlashcardLibrary).get(fc.library_id).library_name,
+                "next_repetition_space": fc.next_repetition_space,
+                "next_practice_time": fc.next_practice_time.isoformat(),
+                "is_due": True,  # These are all due by definition
+                "days_until_due": days_until_due  # Will be negative for due cards
+            })
 
+        logger.info(f"Returning {len(results)} due flashcards for spaced repetition practice")
         return jsonify({
             "flashcards": results,
             "total_available": total_cards
@@ -941,6 +980,8 @@ def get_spaced_practice_flashcards(user_id):
 
     except Exception as e:
         logger.error(f"Error fetching spaced practice flashcards: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/users/<int:user_id>/practice/next', methods=['POST'])
@@ -1001,57 +1042,116 @@ def get_next_spaced_practice_card(user_id):
         current_card_id = data.get('current_card_id')
         is_correct = data.get('is_correct', False)
         
-        logger.info(f"Processing spaced practice card: card_id={current_card_id}, is_correct={is_correct}")
+        logger.info(f"Processing spaced practice card: user_id={user_id}, card_id={current_card_id}, is_correct={is_correct}")
         
         # Update the current card's spaced repetition parameters if provided
+        updated_card = None
+        updated_card_info = {}  # Store information about the updated card
         if current_card_id:
             current_card = Session.query(Flashcard).filter(Flashcard.id == current_card_id).first()
             
             if current_card:
+                logger.info(f"Found card {current_card_id} - Current state: space={current_card.next_repetition_space}, next_practice_time={current_card.next_practice_time}")
+                
                 if is_correct:
                     # Double the repetition space and update next practice time
                     old_space = current_card.next_repetition_space
                     current_card.next_repetition_space = current_card.next_repetition_space * 2
                     # Set next practice time to current time + repetition space days
-                    current_card.next_practice_time = datetime.now() + timedelta(days=current_card.next_repetition_space)
+                    new_practice_time = datetime.now() + timedelta(days=current_card.next_repetition_space)
+                    current_card.next_practice_time = new_practice_time
+                    updated_card = current_card
+                    
+                    # Store the updated card information to return to the frontend
+                    updated_card_info = {
+                        "id": current_card.id,
+                        "next_repetition_space": current_card.next_repetition_space,
+                        "next_practice_time": new_practice_time.isoformat()
+                    }
+                    
                     logger.info(f"Card {current_card_id} marked correct: repetition space updated from {old_space} to {current_card.next_repetition_space} days")
+                    logger.info(f"Next practice time set to {new_practice_time.isoformat()}")
                 else:
                     # Reduce repetition space to minimum of 1 day or half current value
                     old_space = current_card.next_repetition_space
                     current_card.next_repetition_space = max(1, current_card.next_repetition_space // 2)
+                    # For incorrect answers, set next_practice_time to now
+                    current_card.next_practice_time = datetime.now()
+                    updated_card = current_card
+                    
+                    # Store the updated card information to return to the frontend
+                    updated_card_info = {
+                        "id": current_card.id,
+                        "next_repetition_space": current_card.next_repetition_space,
+                        "next_practice_time": current_card.next_practice_time.isoformat()
+                    }
+                    
                     logger.info(f"Card {current_card_id} marked incorrect: repetition space updated from {old_space} to {current_card.next_repetition_space} days")
-                    # For incorrect answers, we don't update next_practice_time
+                    logger.info(f"Next practice time set to now")
                 
-                Session.commit()
-                logger.info(f"Database updated for card {current_card_id}")
-        
-        # For incorrect answers, we want to return the next card in the queue
-        # and let the frontend handle putting the current card at the end
-        if not is_correct and current_card_id:
-            # Get the next due card that's not the current card
-            next_card = (Session.query(Flashcard)
-                        .join(FlashcardLibrary)
-                        .filter(FlashcardLibrary.user_id == user_id)
-                        .filter(Flashcard.next_practice_time <= func.now())
-                        .filter(Flashcard.id != current_card_id)
-                        .order_by(func.random())
-                        .first())
-            
-            # If there are no other due cards, return the current card
-            if not next_card:
-                next_card = current_card
+                try:
+                    # Explicitly commit the changes to the database
+                    Session.commit()
+                    
+                    # Refresh the card from the database to ensure we have the latest values
+                    Session.refresh(current_card)
+                    
+                    # Re-fetch the card to verify the changes were saved
+                    verification_card = Session.query(Flashcard).filter(Flashcard.id == current_card_id).first()
+                    logger.info(f"Verification after update: card {current_card_id} has space={verification_card.next_repetition_space}, next_practice_time={verification_card.next_practice_time}")
+                    
+                    # Update our reference to use the refreshed card
+                    updated_card = verification_card
+                    
+                    logger.info(f"Database successfully updated for card {current_card_id}")
+                except Exception as commit_error:
+                    logger.error(f"Failed to commit changes to card {current_card_id}: {str(commit_error)}")
+                    logger.error(f"Error details: {type(commit_error).__name__}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    Session.rollback()
+                    return jsonify({"error": f"Database error: {str(commit_error)}"}), 500
+            else:
+                logger.warning(f"Card with ID {current_card_id} not found for user {user_id}")
         else:
-            # For correct answers, get the next due card
-            next_card = (Session.query(Flashcard)
-                        .join(FlashcardLibrary)
-                        .filter(FlashcardLibrary.user_id == user_id)
-                        .filter(Flashcard.next_practice_time <= func.now())
-                        .order_by(func.random())
-                        .first())
+            logger.warning(f"No card ID provided in request for user {user_id}")
+        
+        # Create a fresh query to get the most up-to-date data
+        # Use a new Session query to ensure we're getting fresh data after the commit
+        Session.expire_all()  # Force reload from DB
+        
+        # For all cases, explicitly filter out the card that was just updated
+        query = (Session.query(Flashcard)
+                .join(FlashcardLibrary)
+                .filter(FlashcardLibrary.user_id == user_id)
+                .filter(Flashcard.next_practice_time <= func.now()))  # Only cards due for practice
+        
+        # Always exclude the current card from next results if it was marked as correct
+        if current_card_id and is_correct:
+            query = query.filter(Flashcard.id != current_card_id)
+        
+        # Log how many cards are still due
+        due_cards_count = query.count()
+        logger.info(f"User {user_id} has {due_cards_count} cards still due for practice")
+        
+        next_card = query.order_by(func.random()).first()
+        
+        # Only use the updated card for incorrect answers if no other cards are available
+        if not next_card and updated_card and not is_correct:
+            logger.info(f"No other due cards for user {user_id}, returning the current card {current_card_id}")
+            next_card = updated_card
         
         if not next_card:
             logger.info(f"No more cards available for user {user_id}")
-            return jsonify({"message": "No more cards available for practice"}), 404
+            # Include the updated card info in the response
+            response_data = {
+                "message": "No more cards available for practice",
+                "cards_completed": True
+            }
+            if updated_card_info:
+                response_data["updated_card"] = updated_card_info
+            
+            return jsonify(response_data), 200
             
         result = {
             "id": next_card.id,
@@ -1059,14 +1159,22 @@ def get_next_spaced_practice_card(user_id):
             "back": next_card.back_text,
             "additional_info": next_card.additional_info,
             "topic": Session.query(FlashcardLibrary).get(next_card.library_id).library_name,
-            "next_repetition_space": next_card.next_repetition_space
+            "next_repetition_space": next_card.next_repetition_space,
+            "cards_remaining": due_cards_count
         }
         
-        logger.info(f"Returning next card {next_card.id} for user {user_id}")
+        # Include information about the updated card in the response
+        if updated_card_info:
+            result["updated_card"] = updated_card_info
+        
+        logger.info(f"Returning next card {next_card.id} for user {user_id}, {due_cards_count} cards remaining")
+        logger.info(f"Response data: {result}")
         return jsonify(result), 200
 
     except Exception as e:
         logger.error(f"Error in spaced repetition practice: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 # Add your system prompt here
