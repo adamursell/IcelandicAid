@@ -21,7 +21,7 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
 
   useEffect(() => {
     fetchProgressData();
-  }, [userId]);
+  }, [userId, activeTab]);
 
   const fetchProgressData = async () => {
     try {
@@ -33,10 +33,61 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
       }
       
       const data = await response.json();
-      setProgressData(data);
       
+      // Check if we have flashcard data and set due flashcards count
       if (data.flashcards && data.flashcards.streak) {
         setDueFlashcards(data.flashcards.streak.due_today);
+      }
+      
+      // Always fetch the detailed flashcard data when needed, regardless of whether 'cards' array exists
+      if (data.flashcards && data.flashcards.total_flashcards > 0 && activeTab === 'flashcard') {
+        try {
+          // Make a second API call to get the individual flashcard details
+          const cardsResponse = await fetch(`${config.API_URL}/users/${userId}/flashcards`, {
+            // Add cache-busting parameter to ensure we get fresh data
+            headers: {
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            }
+          });
+          
+          if (cardsResponse.ok) {
+            const cardsData = await cardsResponse.json();
+            
+            if (cardsData && Array.isArray(cardsData.flashcards)) {
+              // Create a new object with cards included
+              const updatedData = { ...data };
+              
+              // Map the API data to the format expected by the component
+              // Note: 'front' contains Icelandic text, 'back' contains English text
+              updatedData.flashcards.cards = cardsData.flashcards.map(card => ({
+                id: card.id,
+                icelandic: card.front, // This is Icelandic
+                english: card.back,   // This is English
+                time_to_next_practice: card.next_repetition_space || 1,
+                date_added: card.created_at || new Date().toISOString()
+              }));
+              
+              console.log("Added cards data to progressData:", updatedData.flashcards.cards);
+              setProgressData(updatedData);
+            } else {
+              console.warn("No flashcards data in response:", cardsData);
+              // Make sure we still set the progress data even without cards
+              setProgressData(data);
+            }
+          } else {
+            console.error("Failed to fetch flashcard details:", cardsResponse.statusText);
+            // Still set the progress data without cards
+            setProgressData(data);
+          }
+        } catch (cardsError) {
+          console.error('Error fetching flashcard details:', cardsError);
+          // Still set the progress data without cards
+          setProgressData(data);
+        }
+      } else {
+        // If no flashcards, just set the progress data as is
+        setProgressData(data);
       }
       
       setLoading(false);
@@ -310,35 +361,36 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
 
     return (
       <div className="conversation-progress">
-        <div className="stats-header" style={{ justifyContent: 'space-between', gap: '20px', marginBottom: '20px' }}>
-          <div className="stat-box">
-            <h3>&nbsp;</h3>
+        <div className="stats-header" style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          gap: '10px', 
+          marginBottom: '20px', 
+          flexWrap: 'nowrap' 
+        }}>
+          <div className="stat-box" style={{ flex: '1' }}>
             <div className="stat-value" style={{ color: getScoreColor(conversation.overall_score.average), fontSize: '36px' }}>
               {conversation.overall_score.average}
             </div>
             <div className="stat-label">Average overall conversation score</div>
           </div>
-          <div className="stat-box">
-            <h3>&nbsp;</h3>
+          <div className="stat-box" style={{ flex: '1' }}>
             <div className="stat-value" style={{ color: getScoreColor(conversation.grammar_score.average), fontSize: '36px' }}>
               {conversation.grammar_score.average}
             </div>
             <div className="stat-label">Average grammatical accuracy</div>
           </div>
-          <div className="stat-box">
-            <h3>&nbsp;</h3>
+          <div className="stat-box" style={{ flex: '1' }}>
             <div className="stat-value" style={{ color: getScoreColor(conversation.vocabulary_score.average), fontSize: '36px' }}>
               {conversation.vocabulary_score.average}
             </div>
             <div className="stat-label">Average vocabulary usage</div>
           </div>
-        </div>
-        
-        <div className="stats-header" style={{ justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
-          <div className="stat-box" style={{ flex: '0 1 calc(100%)', maxWidth: '300px' }}>
-            <h3>&nbsp;</h3>
-            <div className="stat-value" style={{ fontSize: '48px', color: '#5DADE2' }}>{conversation.total_conversations}</div>
-            <div className="stat-label">Conversations practiced</div>
+          <div className="stat-box" style={{ backgroundColor: '#5DADE2', flex: '1' }}>
+            <div className="stat-value" style={{ fontSize: '36px', color: '#FFFFFF' }}>
+              {conversation.total_conversations}
+            </div>
+            <div className="stat-label" style={{ color: '#FFFFFF' }}>Conversations practiced</div>
           </div>
         </div>
 
@@ -399,12 +451,14 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
 
   const renderFlashcardProgress = () => {
     if (!progressData || !progressData.flashcards) {
+      console.log("No flashcard data available in progressData", progressData);
       return <div className="no-data-message">No flashcard data available.</div>;
     }
 
     const { flashcards } = progressData;
     
     if (flashcards.total_flashcards === 0) {
+      console.log("No flashcards exist in the library", flashcards);
       return (
         <div className="no-data-message">
           You need to generate flashcards before you can check your progress.
@@ -417,6 +471,14 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
     console.log("Word types:", flashcards.word_types);
     console.log("Total topics:", flashcards.total_topics);
     console.log("Due flashcards:", dueFlashcards);
+    
+    // Check if cards array exists
+    if (!flashcards.cards) {
+      console.log("Cards array is missing from flashcards data");
+    } else {
+      console.log("Cards array has", flashcards.cards.length, "items");
+      console.log("First card example:", flashcards.cards[0]);
+    }
 
     // Create a pie chart data from knowledge levels instead of bar chart
     const knowledgeLevelsPieData = {
@@ -443,13 +505,18 @@ const LearnerProgress = ({ userId, onLogout, isEmbedded = false }) => {
 
     return (
       <div className="flashcard-progress">
-        <div className="library-stats">
-          <div className="stat-box large">
-            <div className="stat-value">{flashcards.total_flashcards}</div>
+        {/* Evenly spaced stat boxes across the top */}
+        <div className="stats-header" style={{ justifyContent: 'space-between', gap: '20px', marginBottom: '20px' }}>
+          <div className="stat-box">
+            <div className="stat-value" style={{ fontSize: '36px', color: '#5DADE2' }}>
+              {flashcards.total_flashcards}
+            </div>
             <div className="stat-label">Flashcards in library</div>
           </div>
-          <div className="stat-box large">
-            <div className="stat-value">{dueFlashcards}</div>
+          <div className="stat-box">
+            <div className="stat-value" style={{ fontSize: '36px', color: '#5DADE2' }}>
+              {dueFlashcards}
+            </div>
             <div className="stat-label">Due for practice today</div>
           </div>
         </div>

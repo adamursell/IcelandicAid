@@ -264,7 +264,7 @@ const PracticeSession = () => {
   };
 
   const moveToNextCard = () => {
-    // Reset the flip state
+    // Always reset the flip state first
     setIsFlipped(false);
     
     console.log(`Moving to next card, current index: ${currentIndex}, total cards: ${flashcards.length}`);
@@ -290,6 +290,9 @@ const PracticeSession = () => {
       hasNextRepetitionSpace: responseData && responseData.next_repetition_space !== undefined,
       hasUpdatedCard: responseData && responseData.updated_card !== undefined
     });
+    
+    // Always reset the flip state when updating cards
+    setIsFlipped(false);
     
     // Process updated card information if provided by the backend
     if (responseData.updated_card) {
@@ -397,8 +400,6 @@ const PracticeSession = () => {
           // that will handle updating the index after the flashcards state has been updated
           setCardMovedToEnd(currentCardId);
           
-          // Reset the flip state
-          setIsFlipped(false);
           return;
         }
       }
@@ -436,7 +437,6 @@ const PracticeSession = () => {
           } else {
             setCurrentIndex(currentIndex + 1);
           }
-          setIsFlipped(false);
         } else {
           console.log('Card returned by API is already in our deck, continuing...');
           
@@ -456,18 +456,8 @@ const PracticeSession = () => {
             } else {
               setCurrentIndex(currentIndex + 1);
             }
-            setIsFlipped(false);
           }
         }
-      } else {
-        // If no card ID in response but we're still processing an incorrect answer
-        // Just move to the next card without ending the session
-        if (currentIndex >= flashcards.length - 1) {
-          setCurrentIndex(0);
-        } else {
-          setCurrentIndex(currentIndex + 1);
-        }
-        setIsFlipped(false);
       }
     }
   };
@@ -619,6 +609,7 @@ const PracticeSession = () => {
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
+      // Always reset the flip state to show front of card
       setIsFlipped(false);
     }
   };
@@ -626,6 +617,7 @@ const PracticeSession = () => {
   const handleNext = () => {
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(currentIndex + 1);
+      // Always reset the flip state to show front of card
       setIsFlipped(false);
     } else {
       setIsComplete(true);
@@ -688,7 +680,7 @@ const PracticeSession = () => {
       // Reset the moved card tracking
       setCardMovedToEnd(null);
       
-      // Reset flip state to show front of card
+      // Always reset flip state to show front of card
       setIsFlipped(false);
     }
   }, [cardMovedToEnd, flashcards, currentIndex]);
