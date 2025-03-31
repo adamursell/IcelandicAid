@@ -20,7 +20,7 @@ const FeedbackPane = ({ feedback }) => {
       <h3>Feedback</h3>
       
       {!feedback ? (
-        <p className="no-feedback-message">Feedback will appear here after you send a message.</p>
+        <p className="no-feedback-message">Click on your messages to view feedback in this pane.</p>
       ) : (
         <>
           {feedback.grammar_notes && feedback.grammar_notes.length > 0 && (
