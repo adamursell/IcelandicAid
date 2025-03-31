@@ -2790,6 +2790,748 @@ def view_feedback():
         print(traceback.format_exc())
         return jsonify({'error': 'Failed to retrieve feedback'}), 500
 
+# Add this with other prompts
+SUGGESTED_SCENARIOS_PROMPT = """You are part of a language learning app. Your role is to generate brief suggested conversation prompts that the user can click on to practice Icelandic.
+
+User Profile:
+- Skill Level: {USER_SKILL_LEVEL}
+- Profession: {USER_PROFESSION}
+- Hobbies: {USER_HOBBIES}
+- Interests: {USER_INTERESTS}
+- Gender: {USER_GENDER}
+
+Based on the user's profile above, suggest 6 short, simple conversation scenarios that would be helpful and relevant for this user to practice Icelandic. Each prompt should be a short sentence. For example, if one of the user's interests was football, you could suggest "Going to watch a football match".
+
+Your response MUST be EXACTLY in this JSON format - nothing else:
+
+{{
+    "suggested_scenarios": [
+        "Short scenario prompt 1",
+        "Short scenario prompt 2",
+        "Short scenario prompt 3",
+        "Short scenario prompt 4",
+        "Short scenario prompt 5",
+        "Short scenario prompt 6"
+    ]
+}}
+
+CRITICAL REQUIREMENTS:
+1. NO preamble text before the JSON
+2. NO explanation text after the JSON
+3. NO markdown code blocks (```)
+4. Absolutely NO extra text of ANY kind - just the raw JSON
+5. Start with '{{' character and end with '}}' character
+6. Make sure it's valid JSON (proper quotes, commas, no trailing commas)
+7. Each scenario must be a simple string, not an object
+8. You MUST provide exactly 6 scenarios
+
+I will parse your response directly as JSON, so ANY deviation from this format will cause errors.
+"""
+
+@app.route('/suggested-conversation-scenarios', methods=['POST'])
+def get_suggested_scenarios():
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        
+        # For testing - return fixed scenarios without calling Claude
+        test_mode = data.get('test_mode', False)
+        if test_mode:
+            logger.info("Test mode activated - returning hardcoded scenarios")
+            return jsonify({
+                "message": "Test scenarios generated successfully",
+                "suggested_scenarios": [
+                    "Going to a coffee shop",
+                    "Shopping for groceries", 
+                    "Meeting a new friend"
+                ]
+            }), 200
+
+        if not user_id:
+            return jsonify({"error": "Missing required field: user_id"}), 400
+
+        # Get user profile from database
+        user = Session.query(User).get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Create personalized system prompt using user profile
+        personalized_prompt = SUGGESTED_SCENARIOS_PROMPT.format(
+            USER_SKILL_LEVEL=user.skill_level or "beginner",
+            USER_PROFESSION=user.profession or "general",
+            USER_HOBBIES=user.hobbies or "general",
+            USER_INTERESTS=user.interests or "general",
+            USER_GENDER=user.gender or "neutral"
+        )
+
+        try:
+            # Generate suggestions using Claude
+            client = Anthropic(api_key=API_KEY)
+            
+            logger.info(f"Sending suggested scenarios prompt to Claude for user {user_id}")
+
+            # Define user message outside the API call for clarity
+            user_message = "Return a JSON object with suggested conversation scenarios. Your entire response MUST be a single valid JSON object starting with '{' and ending with '}'. No additional text, comments, or explanations before or after the JSON. The format must exactly match: {\"suggested_scenarios\": [\"scenario 1\", \"scenario 2\", \"scenario 3\", \"scenario 4\", \"scenario 5\", \"scenario 6\"]}"
+            
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1000,
+                temperature=0.9,  # Increased temperature for more varied responses
+                system=personalized_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": user_message
+                }]
+            )
+
+            # Extract response text using the same method as successful endpoints
+            response_text = ""
+            if hasattr(response, 'content') and isinstance(response.content, list) and response.content:
+                first_content = response.content[0]
+                if hasattr(first_content, 'text'):
+                    response_text = first_content.text
+                    logger.info(f"Successfully extracted text from response (length: {len(response_text)})")
+                    logger.info(f"Response starts with: '{response_text[:50]}...'")
+                    logger.info(f"Response ends with: '...{response_text[-50:]}'")
+            
+            # Fallback response in case of parsing errors
+            fallback_scenarios = [
+                "Going to a coffee shop",
+                "Shopping for groceries",
+                "Meeting a new friend",
+                "Asking for directions",
+                "Ordering food at a restaurant",
+                "Talking about the weather"
+            ]
+
+            # Simple JSON parsing similar to the successful flashcard endpoint
+            try:
+                # Clean the response text
+                cleaned_text = response_text.strip()
+                logger.info(f"Cleaned text (length: {len(cleaned_text)})")
+                
+                # Parse as JSON directly
+                scenarios_data = json.loads(cleaned_text)
+                
+                # Validate the structure
+                if 'suggested_scenarios' in scenarios_data and isinstance(scenarios_data['suggested_scenarios'], list):
+                    logger.info(f"Successfully parsed JSON: {scenarios_data}")
+                    return jsonify({
+                        "message": "Scenario suggestions generated successfully",
+                        "suggested_scenarios": scenarios_data['suggested_scenarios']
+                    }), 200
+                else:
+                    logger.error(f"Missing 'suggested_scenarios' key in response: {scenarios_data}")
+                    return jsonify({
+                        "message": "Generated fallback scenarios (missing key)",
+                        "suggested_scenarios": fallback_scenarios
+                    }), 200
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {str(e)}")
+                
+                # If we can't parse the JSON directly, try fix_json
+                try:
+                    # Helper function to fix common JSON issues
+                    def try_fix_json(json_str):
+                        # Fix missing quotes around keys
+                        fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)', r'\1"\2"\3', json_str)
+                        # Fix single quotes being used instead of double quotes
+                        fixed_str = fixed_str.replace("'", '"')
+                        # Fix trailing commas in arrays or objects
+                        fixed_str = re.sub(r',\s*([}\]])', r'\1', fixed_str)
+                        return fixed_str
+                    
+                    fixed_json = try_fix_json(cleaned_text)
+                    logger.info(f"Attempting to parse fixed JSON: {fixed_json}")
+                    
+                    scenarios_data = json.loads(fixed_json)
+                    
+                    if 'suggested_scenarios' in scenarios_data and isinstance(scenarios_data['suggested_scenarios'], list):
+                        logger.info(f"Successfully parsed fixed JSON: {scenarios_data}")
+                        return jsonify({
+                            "message": "Scenario suggestions generated successfully (after fixing)",
+                            "suggested_scenarios": scenarios_data['suggested_scenarios']
+                        }), 200
+                except Exception as fix_error:
+                    logger.error(f"Error fixing JSON: {str(fix_error)}")
+                
+                # Return fallback if all parsing attempts fail
+                return jsonify({
+                    "message": "Generated fallback scenarios (parsing failed)",
+                    "suggested_scenarios": fallback_scenarios
+                }), 200
+
+        except Exception as e:
+            logger.error(f"Error generating scenario suggestions: {str(e)}")
+            return jsonify({
+                "message": "Generated fallback scenarios (API error)",
+                "suggested_scenarios": fallback_scenarios
+            }), 200
+
+    except Exception as e:
+        logger.error(f"Unexpected error in get_suggested_scenarios: {str(e)}")
+        return jsonify({
+            "message": "Generated fallback scenarios (unexpected error)", 
+            "suggested_scenarios": [
+                "Going to a coffee shop",
+                "Shopping for groceries",
+                "Meeting a new friend",
+                "Asking for directions",
+                "Ordering food at a restaurant",
+                "Talking about the weather"
+            ]
+        }), 200
+
+# Test endpoint for directly testing the suggested scenarios functionality
+@app.route('/test-suggested-scenarios/<int:user_id>', methods=['GET'])
+def test_suggested_scenarios(user_id):
+    """
+    Test endpoint to directly check the suggested scenarios functionality for a specific user.
+    This can be helpful for debugging without going through the UI.
+    """
+    logger.info(f"Test endpoint called for user ID: {user_id}")
+    
+    # Call the actual implementation with the provided user ID
+    try:
+        # Get user profile from database
+        user = Session.query(User).get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Create personalized system prompt using user profile
+        personalized_prompt = SUGGESTED_SCENARIOS_PROMPT.format(
+            USER_SKILL_LEVEL=user.skill_level or "beginner",
+            USER_PROFESSION=user.profession or "general",
+            USER_HOBBIES=user.hobbies or "general",
+            USER_INTERESTS=user.interests or "general",
+            USER_GENDER=user.gender or "neutral"
+        )
+        
+        # Display the prompt that will be sent to Claude
+        logger.info(f"Test prompt: {personalized_prompt}")
+        
+        client = Anthropic(api_key=API_KEY)
+        
+        logger.info(f"Sending test prompt to Claude for user {user_id}")
+        
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.2,
+            system=personalized_prompt,
+            messages=[{
+                "role": "user",
+                "content": "Return ONLY a raw JSON object with 6 conversation scenarios. The JSON must start with '{' and end with '}' with NO other text, formatting, or explanation. Format: {\"suggested_scenarios\": [\"scenario 1\", \"scenario 2\", \"scenario 3\", \"scenario 4\", \"scenario 5\", \"scenario 6\"]}"
+            }]
+        )
+        
+        # Extract response text
+        response_text = ""
+        if hasattr(response, 'content'):
+            if isinstance(response.content, list) and response.content:
+                first_content = response.content[0]
+                if hasattr(first_content, 'text'):
+                    response_text = first_content.text
+        
+        # Enhanced error analysis for the test endpoint
+        result = {
+            "raw_response": response_text,
+            "response_length": len(response_text),
+            "first_char": response_text[0] if response_text else None,
+            "first_10_chars": response_text[:10] if len(response_text) >= 10 else response_text,
+            "last_10_chars": response_text[-10:] if len(response_text) >= 10 else response_text,
+            "starts_with_brace": response_text.startswith('{') if response_text else False,
+            "ends_with_brace": response_text.endswith('}') if response_text else False,
+            "contains_suggested_scenarios": "suggested_scenarios" in response_text,
+            "test_result": "This is the raw response from Claude for debugging purposes."
+        }
+        
+        # Add debugging information
+        debug_info = {
+            "user_info": {
+                "skill_level": user.skill_level or "beginner",
+                "profession": user.profession or "general",
+                "hobbies": user.hobbies or "general",
+                "interests": user.interests or "general",
+                "gender": user.gender or "neutral"
+            }
+        }
+        
+        # Try parsing with our improved methods to see what works
+        try:
+            # Helper function to attempt to fix common JSON issues
+            def try_fix_json(json_str):
+                # Fix missing quotes around keys
+                fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)', r'\1"\2"\3', json_str)
+                
+                # Fix single quotes being used instead of double quotes
+                fixed_str = fixed_str.replace("'", '"')
+                
+                # Fix trailing commas in arrays or objects
+                fixed_str = re.sub(r',\s*([}\]])', r'\1', fixed_str)
+                
+                return fixed_str
+            
+            parsing_results = {
+                "direct_parse": False,
+                "fixed_json_parse": False,
+                "regex_extraction": False,
+                "scenarios_found": []
+            }
+            
+            # 1. Try direct parsing
+            try:
+                direct_parse = json.loads(response_text)
+                parsing_results["direct_parse"] = True
+                if "suggested_scenarios" in direct_parse:
+                    parsing_results["scenarios_found"] = direct_parse["suggested_scenarios"]
+            except Exception as e:
+                parsing_results["direct_parse_error"] = str(e)
+            
+            # 2. Try fixed JSON parsing
+            if not parsing_results["direct_parse"]:
+                try:
+                    fixed_json = try_fix_json(response_text)
+                    fixed_parse = json.loads(fixed_json)
+                    parsing_results["fixed_json_parse"] = True
+                    if "suggested_scenarios" in fixed_parse:
+                        parsing_results["scenarios_found"] = fixed_parse["suggested_scenarios"]
+                except Exception as e:
+                    parsing_results["fixed_json_error"] = str(e)
+            
+            # 3. Try regex extraction
+            if not parsing_results["scenarios_found"]:
+                # Find any JSON-like structure
+                json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+                if json_match:
+                    potential_json = json_match.group(1)
+                    try:
+                        regex_parse = json.loads(potential_json)
+                        parsing_results["regex_extraction"] = True
+                        if "suggested_scenarios" in regex_parse:
+                            parsing_results["scenarios_found"] = regex_parse["suggested_scenarios"]
+                    except Exception as e:
+                        parsing_results["regex_error"] = str(e)
+            
+            # 4. Try pattern matching
+            if not parsing_results["scenarios_found"]:
+                scenario_pattern = r'"([^"]+)"'  # Match anything in quotes
+                matches = re.findall(scenario_pattern, response_text)
+                if matches:
+                    filtered_scenarios = [m for m in matches if 5 <= len(m) <= 100 and ' ' in m]
+                    if filtered_scenarios:
+                        parsing_results["pattern_matching"] = True
+                        parsing_results["scenarios_found"] = filtered_scenarios[:6]
+            
+            result["parsing_results"] = parsing_results
+            
+        except Exception as e:
+            result["parsing_error"] = str(e)
+        
+        result["debug_info"] = debug_info
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error in test endpoint: {str(e)}\n{error_traceback}")
+        return jsonify({
+            "error": f"Test failed: {str(e)}",
+            "traceback": error_traceback
+        }), 500
+
+# Test endpoint for directly testing the suggested scenarios functionality
+@app.route('/test-scenarios-static', methods=['GET'])
+def test_scenarios_static():
+    """
+    A simpler test endpoint that returns static scenarios without calling Claude.
+    This is useful to verify that the frontend can properly receive and display scenarios.
+    """
+    return jsonify({
+        "message": "Test scenarios generated successfully",
+        "suggested_scenarios": [
+            "Going to a coffee shop in Reykjavik",
+            "Asking for directions to the Blue Lagoon",
+            "Ordering traditional Icelandic food at a restaurant",
+            "Discussing the Northern Lights",
+            "Shopping for souvenirs in downtown Reykjavik",
+            "Introducing yourself to locals at a community event"
+        ]
+    }), 200
+
+# Test endpoint for directly testing the suggested scenarios functionality
+@app.route('/test-scenarios-raw/<int:user_id>', methods=['GET'])
+def test_scenarios_raw(user_id):
+    """
+    A simpler test endpoint that focuses specifically on the raw Claude output.
+    This makes it easier to debug whether the issue is with Claude's response or the parsing logic.
+    """
+    logger.info(f"Raw test endpoint called for user ID: {user_id}")
+    
+    try:
+        # Get user profile from database
+        user = Session.query(User).get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Create personalized system prompt using user profile - use double braces to escape them
+        personalized_prompt = SUGGESTED_SCENARIOS_PROMPT.format(
+            USER_SKILL_LEVEL=user.skill_level or "beginner",
+            USER_PROFESSION=user.profession or "general",
+            USER_HOBBIES=user.hobbies or "general",
+            USER_INTERESTS=user.interests or "general",
+            USER_GENDER=user.gender or "neutral"
+        )
+        
+        logger.info(f"Sending prompt to Claude for user {user_id}")
+        
+        # Define the user message with the format already escaped
+        user_message = "Return a JSON object with suggested conversation scenarios. Your entire response MUST be a single valid JSON object starting with '{' and ending with '}'. No additional text, comments, or explanations before or after the JSON. The format must exactly match: {\"suggested_scenarios\": [\"scenario 1\", \"scenario 2\", \"scenario 3\", \"scenario 4\", \"scenario 5\", \"scenario 6\"]}"
+        
+        client = Anthropic(api_key=API_KEY)
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.2,
+            system=personalized_prompt,
+            messages=[{
+                "role": "user",
+                "content": user_message
+            }]
+        )
+        
+        # Extract response text
+        response_text = ""
+        if hasattr(response, 'content'):
+            if isinstance(response.content, list) and response.content:
+                first_content = response.content[0]
+                if hasattr(first_content, 'text'):
+                    response_text = first_content.text
+        
+        # Simple HTML display to make it easy to view the response
+        html_response = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Raw Claude Response</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                .response-container {{ 
+                    background-color: #f5f5f5; 
+                    padding: 15px; 
+                    border: 1px solid #ddd; 
+                    border-radius: 5px;
+                    margin: 20px 0;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                }}
+                .char-analysis {{ 
+                    background-color: #e8f4f8; 
+                    padding: 15px; 
+                    border: 1px solid #b8d6e6; 
+                    border-radius: 5px;
+                    margin: 20px 0;
+                    overflow-x: auto;
+                }}
+                .debug-info {{
+                    margin-top: 20px;
+                    padding: 10px;
+                    background-color: #fff8e1;
+                    border: 1px solid #ffe082;
+                    border-radius: 5px;
+                }}
+                .json-parse-test {{
+                    margin-top: 20px;
+                    padding: 10px;
+                    background-color: #e8f5e9;
+                    border: 1px solid #a5d6a7;
+                    border-radius: 5px;
+                }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
+        <body>
+            <h1>Raw Claude Response</h1>
+            
+            <h2>Response Text (Length: {len(response_text)})</h2>
+            <div class="response-container">{response_text}</div>
+            
+            <h2>Character Analysis (First 50 characters)</h2>
+            <div class="char-analysis">
+                <table>
+                    <tr>
+                        <th>Position</th>
+                        <th>Character</th>
+                        <th>ASCII/Unicode</th>
+                    </tr>
+        """
+        
+        # Add first 50 characters to the table
+        for i, char in enumerate(response_text[:50]):
+            html_response += f"""
+                    <tr>
+                        <td>{i}</td>
+                        <td>'{char}'</td>
+                        <td>{ord(char)}</td>
+                    </tr>
+            """
+        
+        # Add JSON parse test
+        html_response += """
+                </table>
+            </div>
+            
+            <h2>JSON Parse Test</h2>
+            <div class="json-parse-test">
+        """
+        
+        # Try to parse the JSON
+        try:
+            parsed_json = json.loads(response_text)
+            html_response += f"""
+                <p style="color: green">✓ Successfully parsed as JSON</p>
+                <h3>Parsed Content:</h3>
+                <pre>{json.dumps(parsed_json, indent=4)}</pre>
+            """
+            
+            # Check for suggested_scenarios
+            if "suggested_scenarios" in parsed_json:
+                html_response += f"""
+                <p style="color: green">✓ Contains 'suggested_scenarios' key</p>
+                <h3>Suggested Scenarios:</h3>
+                <ul>
+                """
+                
+                for scenario in parsed_json["suggested_scenarios"]:
+                    html_response += f"<li>{scenario}</li>"
+                
+                html_response += "</ul>"
+            else:
+                html_response += '<p style="color: red">✗ Missing \'suggested_scenarios\' key</p>'
+            
+        except json.JSONDecodeError as e:
+            html_response += f"""
+                <p style="color: red">✗ Failed to parse as JSON</p>
+                <p>Error: {str(e)}</p>
+                
+                <h3>Possible Fixes:</h3>
+            """
+            
+            # Try different fixes
+            fixes_attempted = []
+            
+            # Fix 1: Try with stripped text
+            fixes_attempted.append(("Stripped whitespace", response_text.strip()))
+            
+            # Fix 2: Try with regex extraction
+            json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+            if json_match:
+                fixes_attempted.append(("Regex extraction", json_match.group(1)))
+            
+            # Fix 3: Try with the helper function
+            def try_fix_json(json_str):
+                # Fix missing quotes around keys
+                fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)', r'\1"\2"\3', json_str)
+                
+                # Fix single quotes being used instead of double quotes
+                fixed_str = fixed_str.replace("'", '"')
+                
+                # Fix trailing commas in arrays or objects
+                fixed_str = re.sub(r',\s*([}\]])', r'\1', fixed_str)
+                
+                return fixed_str
+            
+            fixes_attempted.append(("Fixed JSON", try_fix_json(response_text)))
+            
+            # Try each fix
+            for fix_name, fixed_text in fixes_attempted:
+                try:
+                    parsed_json = json.loads(fixed_text)
+                    html_response += f"""
+                    <div style="margin: 10px 0; padding: 10px; background-color: #e8f5e9; border: 1px solid #a5d6a7;">
+                        <p style="color: green">✓ Successfully parsed with: {fix_name}</p>
+                        <pre>{json.dumps(parsed_json, indent=4)}</pre>
+                    </div>
+                    """
+                except json.JSONDecodeError:
+                    html_response += f"""
+                    <div style="margin: 10px 0; padding: 10px; background-color: #ffebee; border: 1px solid #ffcdd2;">
+                        <p style="color: red">✗ Failed with: {fix_name}</p>
+                    </div>
+                    """
+        
+        # Close the HTML
+        html_response += """
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html_response, 200, {'Content-Type': 'text/html'}
+        
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error in raw test endpoint: {str(e)}\n{error_traceback}")
+        
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error in Raw Test</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #d32f2f; }}
+                .error-container {{ 
+                    background-color: #ffebee; 
+                    padding: 15px; 
+                    border: 1px solid #ffcdd2; 
+                    border-radius: 5px;
+                    margin: 20px 0;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>Error Occurred</h1>
+            <div class="error-container">
+                <h2>Error Message:</h2>
+                <p>{str(e)}</p>
+                
+                <h2>Traceback:</h2>
+                <pre>{error_traceback}</pre>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return error_html, 500, {'Content-Type': 'text/html'}
+
+# Test endpoint for directly testing the suggested scenarios functionality
+@app.route('/test-scenarios-direct', methods=['GET'])
+def test_scenarios_direct():
+    """
+    Direct test endpoint that retrieves scenarios using just the JSON parsing part.
+    """
+    try:
+        # Use a minimal example for testing
+        example_json = {
+            "suggested_scenarios": [
+                "Going to a coffee shop to practice ordering in Icelandic",
+                "Asking for directions to the nearest bookstore",
+                "Introducing yourself to a new Icelandic friend",
+                "Discussing Icelandic literature with a local",
+                "Shopping for groceries at the supermarket",
+                "Talking about the weather and natural attractions"
+            ]
+        }
+        
+        # Return a simple JSON response directly
+        return jsonify({
+            "message": "Direct scenarios test",
+            "suggested_scenarios": example_json["suggested_scenarios"]
+        }), 200
+    except Exception as e:
+        logger.error(f"Error in direct test: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/test-scenarios-claude', methods=['POST'])
+def test_scenarios_claude():
+    """
+    Test endpoint for simplified Claude integration.
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "Missing required field: user_id"}), 400
+
+        # Get user profile from database
+        user = Session.query(User).get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Create personalized system prompt using user profile
+        personalized_prompt = SUGGESTED_SCENARIOS_PROMPT.format(
+            USER_SKILL_LEVEL=user.skill_level or "beginner",
+            USER_PROFESSION=user.profession or "general",
+            USER_HOBBIES=user.hobbies or "general",
+            USER_INTERESTS=user.interests or "general",
+            USER_GENDER=user.gender or "neutral"
+        )
+
+        # Generate suggestions using Claude
+        client = Anthropic(api_key=API_KEY)
+        
+        logger.info(f"Sending simplified test prompt to Claude for user {user_id}")
+
+        # Define user message outside the API call
+        user_message = "Return a JSON object with suggested conversation scenarios. The format must be {\"suggested_scenarios\": [\"scenario 1\", \"scenario 2\", \"scenario 3\", \"scenario 4\", \"scenario 5\", \"scenario 6\"]}"
+        
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.2,
+            system=personalized_prompt,
+            messages=[{
+                "role": "user",
+                "content": user_message
+            }]
+        )
+
+        # Simple response text extraction
+        response_text = ""
+        if hasattr(response, 'content'):
+            if isinstance(response.content, list) and response.content:
+                first_content = response.content[0]
+                if hasattr(first_content, 'text'):
+                    response_text = first_content.text
+        
+        logger.info(f"Raw response: {response_text}")
+        
+        # Very simple JSON parsing - just try to load it directly
+        try:
+            # Clean the response text and parse JSON
+            cleaned_text = response_text.strip()
+            scenarios_data = json.loads(cleaned_text)
+            
+            if 'suggested_scenarios' in scenarios_data:
+                return jsonify({
+                    "message": "Test scenarios generated successfully",
+                    "suggested_scenarios": scenarios_data['suggested_scenarios'],
+                    "debug_info": {
+                        "raw_response": response_text,
+                        "cleaned_text": cleaned_text
+                    }
+                }), 200
+            else:
+                return jsonify({
+                    "error": "Response does not contain suggested_scenarios key",
+                    "debug_info": {
+                        "raw_response": response_text,
+                        "parsed_data": scenarios_data
+                    }
+                }), 500
+        except json.JSONDecodeError as e:
+            return jsonify({
+                "error": f"Failed to parse JSON: {str(e)}",
+                "debug_info": {
+                    "raw_response": response_text,
+                    "extract_attempt": response_text[:100] + "..." + response_text[-100:] if len(response_text) > 200 else response_text
+                }
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error in test endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 # ---------------------------
 # Main Entry Point
 # ---------------------------

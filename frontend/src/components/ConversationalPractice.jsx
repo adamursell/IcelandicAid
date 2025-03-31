@@ -172,47 +172,72 @@ const FeedbackOverlay = ({ feedback, onClose }) => {
       <div className="feedback-modal">
         <h2>Conversation Feedback</h2>
         
+        <button 
+          className="close-feedback-btn"
+          onClick={onClose}
+          aria-label="Close feedback"
+        >
+          &times;
+        </button>
+        
         <div className="feedback-summary">
           <h3>Summary</h3>
           <p>{safeRender(feedback_summary)}</p>
         </div>
         
         <div className="score-section">
-          <h3 className="overall-grade-header">Overall grade: {overall_score}/10</h3>
-          <div className="score-bar-container">
-            <div 
-              className="score-bar overall-score" 
-              style={{ 
-                width: `${overall_score * 10}%`,
-                backgroundColor: getScoreColor(overall_score)
-              }}
-            ></div>
+          <div className="score-overview">
+            <h3 className="overall-grade-header">Overall grade: {overall_score}/10</h3>
+            <div className="score-bar-wrapper">
+              <div 
+                className="score-bar-bg"
+                style={{ position: 'relative' }}
+              >
+                <div 
+                  className="score-bar-fill"
+                  style={{ 
+                    width: `${Math.max(overall_score * 10, 0.5)}%`,
+                    backgroundColor: getScoreColor(overall_score)
+                  }}
+                >
+                  <span className="score-label">{overall_score}</span>
+                </div>
+              </div>
+            </div>
           </div>
           
-          <div className="score-row">
-            <div>
+          <div className="secondary-scores">
+            <div className="secondary-score-item">
               <h3>Grammatical Accuracy: {grammar_score}/10</h3>
-              <div className="score-bar-container">
-                <div 
-                  className="score-bar grammar-bar" 
-                  style={{ 
-                    width: `${grammar_score * 10}%`,
-                    backgroundColor: getScoreColor(grammar_score)
-                  }}
-                ></div>
+              <div className="score-bar-wrapper">
+                <div className="score-bar-bg">
+                  <div 
+                    className="score-bar-fill"
+                    style={{ 
+                      width: `${Math.max(grammar_score * 10, 0.5)}%`,
+                      backgroundColor: getScoreColor(grammar_score)
+                    }}
+                  >
+                    <span className="score-label">{grammar_score}</span>
+                  </div>
+                </div>
               </div>
             </div>
             
-            <div>
+            <div className="secondary-score-item">
               <h3>Vocabulary Usage: {vocabulary_score}/10</h3>
-              <div className="score-bar-container">
-                <div 
-                  className="score-bar vocabulary-bar" 
-                  style={{ 
-                    width: `${vocabulary_score * 10}%`,
-                    backgroundColor: getScoreColor(vocabulary_score)
-                  }}
-                ></div>
+              <div className="score-bar-wrapper">
+                <div className="score-bar-bg">
+                  <div 
+                    className="score-bar-fill"
+                    style={{ 
+                      width: `${Math.max(vocabulary_score * 10, 0.5)}%`,
+                      backgroundColor: getScoreColor(vocabulary_score)
+                    }}
+                  >
+                    <span className="score-label">{vocabulary_score}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -269,15 +294,6 @@ const FeedbackOverlay = ({ feedback, onClose }) => {
             <p className="all-words-added">All words have been added to your library</p>
           )}
         </div>
-        
-        <div className="button-container">
-          <button 
-            className="start-new-conversation-btn"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -303,6 +319,98 @@ const ConversationalPractice = ({ userId }) => {
   const [showTranslation, setShowTranslation] = useState({});
   const [feedbackAvailable, setFeedbackAvailable] = useState(false);
   const [hasUserResponded, setHasUserResponded] = useState(false);
+  const [suggestedScenarios, setSuggestedScenarios] = useState([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  // Add useEffect to fetch suggested scenarios when component mounts
+  useEffect(() => {
+    if (userId && !isStarted) {
+      fetchSuggestedScenarios();
+    }
+  }, [userId, isStarted]);
+
+  // Function to fetch suggested scenarios
+  const fetchSuggestedScenarios = async () => {
+    setIsLoadingSuggestions(true);
+    try {
+      console.log("Fetching suggested scenarios for user ID:", userId);
+      
+      // Just use the main endpoint now that it's working
+      const response = await axios.post(`${config.API_URL}/suggested-conversation-scenarios`, {
+        user_id: userId
+      });
+      console.log("Suggested scenarios response:", response.data);
+      
+      // More detailed logging of the response structure
+      if (response.data) {
+        console.log("Response data type:", typeof response.data);
+        console.log("Response data keys:", Object.keys(response.data));
+        if (response.data.suggested_scenarios) {
+          console.log("Suggested scenarios type:", typeof response.data.suggested_scenarios);
+          console.log("Is array:", Array.isArray(response.data.suggested_scenarios));
+          console.log("Length:", response.data.suggested_scenarios.length);
+          console.log("First few items:", response.data.suggested_scenarios.slice(0, 3));
+        }
+      }
+      
+      if (response.data && response.data.suggested_scenarios && 
+          Array.isArray(response.data.suggested_scenarios) && 
+          response.data.suggested_scenarios.length > 0) {
+        
+        // Filter out any scenarios that are not strings or are too short/empty
+        const validScenarios = response.data.suggested_scenarios
+          .filter(scenario => typeof scenario === 'string' && scenario.trim().length > 0);
+        
+        console.log("Valid scenarios after filtering:", validScenarios);
+        
+        if (validScenarios.length > 0) {
+          console.log("Setting suggested scenarios:", validScenarios);
+          setSuggestedScenarios(validScenarios);
+        } else {
+          console.warn("No valid scenarios found in response");
+          // Use default scenarios if none are valid
+          setSuggestedScenarios([
+            "Ordering food at a restaurant",
+            "Asking for directions",
+            "Introducing yourself",
+            "Shopping for groceries",
+            "Talking about the weather",
+            "Discussing your hobbies"
+          ]);
+        }
+      } else {
+        console.warn("Invalid or empty suggested_scenarios in response:", response.data);
+        // Use default scenarios if response is invalid
+        setSuggestedScenarios([
+          "Ordering food at a restaurant",
+          "Asking for directions",
+          "Introducing yourself",
+          "Shopping for groceries",
+          "Talking about the weather",
+          "Discussing your hobbies"
+        ]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch suggested scenarios:', err);
+      console.error('Error details:', err.response ? err.response.data : 'No response data');
+      // Set default scenarios on error
+      setSuggestedScenarios([
+        "Ordering food at a restaurant",
+        "Asking for directions",
+        "Introducing yourself",
+        "Shopping for groceries",
+        "Talking about the weather",
+        "Discussing your hobbies"
+      ]);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  // Add a function to handle clicking on a suggested scenario
+  const handleSelectSuggestedScenario = (prompt) => {
+    setScenario(prompt);
+  };
 
   // Add a useEffect to ensure feedbackAvailable is set when conversation ends
   useEffect(() => {
@@ -787,6 +895,53 @@ const ConversationalPractice = ({ userId }) => {
           transform: none !important;
           transition: none !important;
         }
+        
+        /* Styles for suggested scenarios */
+        .suggested-scenarios-container {
+          margin-top: 20px;
+          width: 100%;
+        }
+        
+        .suggested-scenarios-heading {
+          font-size: 16px;
+          color: #666;
+          margin-bottom: 12px;
+          font-weight: normal;
+        }
+        
+        .suggested-scenarios {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          width: 100%;
+        }
+        
+        .suggested-scenario-button {
+          background-color: #f9f9f9;
+          border: 1px solid #ddd;
+          border-radius: 6px;
+          padding: 12px 15px;
+          cursor: pointer;
+          text-align: left;
+          transition: all 0.2s;
+          color: #555;
+          font-size: 14px;
+          min-height: 65px;
+          display: flex;
+          align-items: center;
+        }
+        
+        .suggested-scenario-button:hover {
+          background-color: #f0f0f0;
+          border-color: #ccc;
+          color: #333;
+        }
+
+        @media (max-width: 600px) {
+          .suggested-scenarios {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
       
       <HomeButton />
@@ -815,6 +970,32 @@ const ConversationalPractice = ({ userId }) => {
           >
             {isLoading ? 'Starting...' : 'Start Conversation'}
           </button>
+          
+          {/* Display suggested scenarios */}
+          {!isLoadingSuggestions && suggestedScenarios.length > 0 && (
+            <div className="suggested-scenarios-container">
+              <h4 className="suggested-scenarios-heading">Or choose a suggested scenario:</h4>
+              <div className="suggested-scenarios">
+                {suggestedScenarios.map((scenario, index) => (
+                  <button
+                    key={index}
+                    className="suggested-scenario-button"
+                    onClick={() => handleSelectSuggestedScenario(scenario)}
+                    disabled={isLoading}
+                  >
+                    {scenario}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Show loading indicator for suggestions */}
+          {isLoadingSuggestions && (
+            <div className="suggested-scenarios-container">
+              <p style={{ color: '#666', textAlign: 'center' }}>Loading suggested scenarios...</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="conversation-with-feedback">
