@@ -186,28 +186,25 @@ const FeedbackOverlay = ({ feedback, onClose }) => {
         </div>
         
         <div className="score-section">
-          <div className="score-overview">
-            <h3 className="overall-grade-header">Overall grade: {overall_score}/10</h3>
-            <div className="score-bar-wrapper">
-              <div 
-                className="score-bar-bg"
-                style={{ position: 'relative' }}
-              >
-                <div 
-                  className="score-bar-fill"
-                  style={{ 
-                    width: `${Math.max(overall_score * 10, 0.5)}%`,
-                    backgroundColor: getScoreColor(overall_score)
-                  }}
-                >
-                  <span className="score-label">{overall_score}</span>
+          <div className="score-bars-container">
+            <div className="score-item">
+              <h3>Overall grade: {overall_score}/10</h3>
+              <div className="score-bar-wrapper">
+                <div className="score-bar-bg">
+                  <div 
+                    className="score-bar-fill"
+                    style={{ 
+                      width: `${Math.max(overall_score * 10, 0.5)}%`,
+                      backgroundColor: getScoreColor(overall_score)
+                    }}
+                  >
+                    <span className="score-label">{overall_score}</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          
-          <div className="secondary-scores">
-            <div className="secondary-score-item">
+            
+            <div className="score-item">
               <h3>Grammatical Accuracy: {grammar_score}/10</h3>
               <div className="score-bar-wrapper">
                 <div className="score-bar-bg">
@@ -224,7 +221,7 @@ const FeedbackOverlay = ({ feedback, onClose }) => {
               </div>
             </div>
             
-            <div className="secondary-score-item">
+            <div className="score-item">
               <h3>Vocabulary Usage: {vocabulary_score}/10</h3>
               <div className="score-bar-wrapper">
                 <div className="score-bar-bg">
@@ -955,44 +952,48 @@ const ConversationalPractice = ({ userId }) => {
       
       {!isStarted ? (
         <div className="scenario-setup">
-          <h3>Set up your conversation</h3>
-          <input
-            type="text"
-            value={scenario}
-            onChange={(e) => setScenario(e.target.value)}
-            placeholder="Describe a scenario for conversation practice..."
-            disabled={isLoading}
-            onKeyDown={(e) => handleKeyPress(e, 'start')}
-          />
-          <button 
-            onClick={handleStartConversation}
-            disabled={isLoading || !scenario.trim()}
-          >
-            {isLoading ? 'Starting...' : 'Start Conversation'}
-          </button>
-          
+          <div className="scenario-input-section">
+            <h3>Set up your conversation</h3>
+            <p>Describe a scenario for conversation practice...</p>
+            <input
+              type="text"
+              value={scenario}
+              onChange={(e) => setScenario(e.target.value)}
+              placeholder="For example: Ordering food at a restaurant..."
+              disabled={isLoading}
+              onKeyDown={(e) => handleKeyPress(e, 'start')}
+            />
+            <button 
+              className="go-button"
+              onClick={handleStartConversation}
+              disabled={isLoading || !scenario.trim()}
+              title="Start conversation"
+            >
+              Go
+            </button>
+          </div>
+
           {/* Display suggested scenarios */}
           {!isLoadingSuggestions && suggestedScenarios.length > 0 && (
-            <div className="suggested-scenarios-container">
-              <h4 className="suggested-scenarios-heading">Or choose a suggested scenario:</h4>
-              <div className="suggested-scenarios">
-                {suggestedScenarios.map((scenario, index) => (
-                  <button
+            <div className="suggested-scenarios-section">
+              <h3>Or choose a suggested scenario:</h3>
+              <div className="scenarios-grid">
+                {suggestedScenarios.slice(0, 6).map((scenarioText, index) => (
+                  <div
                     key={index}
-                    className="suggested-scenario-button"
-                    onClick={() => handleSelectSuggestedScenario(scenario)}
-                    disabled={isLoading}
+                    className={`scenario-card ${scenario === scenarioText ? 'active' : ''}`}
+                    onClick={() => handleSelectSuggestedScenario(scenarioText)}
                   >
-                    {scenario}
-                  </button>
+                    {scenarioText}
+                  </div>
                 ))}
               </div>
             </div>
           )}
-          
+
           {/* Show loading indicator for suggestions */}
           {isLoadingSuggestions && (
-            <div className="suggested-scenarios-container">
+            <div className="suggested-scenarios-section">
               <p style={{ color: '#666', textAlign: 'center' }}>Loading suggested scenarios...</p>
             </div>
           )}
